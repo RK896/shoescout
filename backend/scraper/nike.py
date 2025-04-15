@@ -7,7 +7,7 @@ from webdriver_manager.microsoft import EdgeChromiumDriverManager
 import time
 
 #automating scrolling to load content
-def scroll_to_bottom(driver, pause_time=1.5, max_scrolls=20):
+def scroll_to_bottom(driver, pause_time=40, max_scrolls=20):
     last_height = driver.execute_script("return document.body.scrollHeight")
     scrolls = 0
 
