@@ -26,8 +26,9 @@ def scrape_nike():
     edge_options.add_argument("--disable-gpu") 
     edge_options.add_argument("--blink-settings=imagesEnabled=false")  
     edge_options.add_argument("--no-sandbox")
+    edge_options.add_argument("--headless")
     driver = webdriver.Edge(service=Service(EdgeChromiumDriverManager().install()), options=edge_options)
-    driver.set_page_load_timeout(45)
+    driver.set_page_load_timeout(300)
     driver.get(url)
     time.sleep(3)
 
@@ -36,9 +37,9 @@ def scrape_nike():
     shoes = []
     product_cards = driver.find_elements(By.CLASS_NAME, "product-card")
     for product in product_cards:
-        name_tag = product.find_elements(By.CLASS_NAME, "product-card__title")
-        price_tag = product.find_elements(By.CLASS_NAME, "product-price")
-        link_tag = product.find_elements(By.CLASS_NAME, "product-card__img-link-overlay")
+        name_tag = product.find_element(By.CLASS_NAME, "product-card__title")
+        price_tag = product.find_element(By.CLASS_NAME, "product-price")
+        link_tag = product.find_element(By.CLASS_NAME, "product-card__img-link-overlay")
 
         if name_tag and price_tag and link_tag: 
             shoes.append({
