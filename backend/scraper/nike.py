@@ -1,13 +1,13 @@
 
 from selenium import webdriver
-from selenium.webdriver.edge.options import Options
-from selenium.webdriver.edge.service import Service
+from selenium.webdriver.chrome import options
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
-from webdriver_manager.microsoft import EdgeChromiumDriverManager
+from webdriver_manager.chrome import ChromeDriverManager
 import time
 
 #automating scrolling to load content
-def scroll_to_bottom(driver, pause_time=40, max_scrolls=20):
+def scroll_to_bottom(driver, pause_time=5, max_scrolls=3):
     last_height = driver.execute_script("return document.body.scrollHeight")
     scrolls = 0
 
@@ -22,32 +22,36 @@ def scroll_to_bottom(driver, pause_time=40, max_scrolls=20):
 
 def scrape_nike():
     url = "https://www.nike.com/w/mens-running-shoes-37v7jznik1zy7ok"
-    edge_options = Options()
-    edge_options.add_argument("--disable-gpu") 
-    edge_options.add_argument("--blink-settings=imagesEnabled=false")  
-    edge_options.add_argument("--no-sandbox")
-    edge_options.add_argument("--headless")
-    driver = webdriver.Edge(service=Service(EdgeChromiumDriverManager().install()), options=edge_options)
-    driver.set_page_load_timeout(300)
+    chrome_options = webdriver.ChromeOptions()
+    chrome_options.add_argument("--disable-gpu") 
+    chrome_options.add_argument("--blink-settings=imagesEnabled=false")  
+    chrome_options.add_argument("--no-sandbox")
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+    driver.set_page_load_timeout(10)
     driver.get(url)
-    time.sleep(3)
 
     scroll_to_bottom(driver)
 
     shoes = []
     product_cards = driver.find_elements(By.CLASS_NAME, "product-card")
     for product in product_cards:
-        name_tag = product.find_element(By.CLASS_NAME, "product-card__title")
-        price_tag = product.find_element(By.CLASS_NAME, "product-price")
-        link_tag = product.find_element(By.CLASS_NAME, "product-card__img-link-overlay")
 
-        if name_tag and price_tag and link_tag: 
+        try:
+            name_tag = product.find_element(By.CLASS_NAME, "product-card__title")
+            price_tag = product.find_element(By.CLASS_NAME, "product-price")
+            link_tag = product.find_element(By.CLASS_NAME, "product-card__img-link-overlay")
+
+    
             shoes.append({
                 "name": name_tag.text.strip(),
                 "price": price_tag.text.strip(),
                 "url": link_tag.get_attribute("href"),
-                "brand": "Nike"
+                "brand": "Nike",
+                "retailer": "Nike"
                 })
+        except Exception as e:
+            print(f"skipping a product due to missing info: {e}")
+    
     driver.quit()
     return shoes
 
