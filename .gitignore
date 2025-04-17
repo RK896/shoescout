@@ -1,12 +1,6 @@
 # Ignore virtual environments
 venv/
-
-# Ignore Python bytecode files
 *.pyc
 *.pyo
-
-# Ignore IDE-specific files (VSCode example)
 .vscode/
-
-# Ignore system-specific files (macOS example)
 .DS_Store
