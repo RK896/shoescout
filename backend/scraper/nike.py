@@ -26,6 +26,7 @@ def scrape_nike():
     chrome_options.add_argument("--disable-gpu") 
     chrome_options.add_argument("--blink-settings=imagesEnabled=false")  
     chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--headless")
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     driver.set_page_load_timeout(10)
     driver.get(url)
@@ -39,28 +40,27 @@ def scrape_nike():
         try:
             name_tag = product.find_element(By.CLASS_NAME, "product-card__title")
             price_tag = product.find_element(By.CLASS_NAME, "product-price")
+            img_tag = product.find_element(By.CLASS_NAME, "product-card__hero-image")
+            img_url = img_tag.get_attribute("src") if img_tag else None
             link_tag = product.find_element(By.CLASS_NAME, "product-card__img-link-overlay")
 
     
             shoes.append({
-                "name": name_tag.text.strip(),
-                "price": price_tag.text.strip(),
-                "url": link_tag.get_attribute("href"),
                 "brand": "Nike",
+                "model": name_tag.text.strip(),
+                "price": price_tag.text.strip(),
+                "link": link_tag.get_attribute("href"),
+                "image": img_url,
                 "retailer": "Nike"
                 })
         except Exception as e:
-            print(f"skipping a product due to missing info: {e}")
+            print(f"skipping a product due to missing info")
     
     driver.quit()
     return shoes
 
 if __name__ == "__main__": 
     results = scrape_nike()
-    count = 0
-    for shoe in results: 
-        print(shoe)
-        count+=1
-    print(count)
+    print(len(results))
         
 

@@ -56,18 +56,18 @@ def add_shoes_to_db(shoes, db):
 
         else:
             collection.update_one(
-                {"model": shoe["model"]},
+                {"model": model},
                 {
                     "$set": {
-                        "brand": shoe["brand"],
-                        "model": shoe["model"],
-                        "image": shoe["image"]
+                        "brand": brand,
+                        "model": model,
+                        "image": image
                     },
                     "$addToSet": {
                         "retailers": {
-                            "retailer": shoe["retailer"],
-                            "price": shoe["price"],
-                            "link": shoe["link"]
+                            "retailer": retailer,
+                            "price": price,
+                            "link": link
                         }
                     }
                 },
@@ -75,10 +75,11 @@ def add_shoes_to_db(shoes, db):
             )
 
 if __name__ == "__main__":
-    db = get_db()  # Get the MongoDB collection
-    shoes = runningwarehouse.scrape_runningwarehouse()  # Scrape the shoe data
-    add_shoes_to_db(shoes, db)  # Save the shoes to MongoDB
+    db = get_db() 
+    shoes = runningwarehouse.scrape_runningwarehouse()
+    shoes.extend(nike.scrape_nike())
+    add_shoes_to_db(shoes, db)  
     print("Shoes saved to MongoDB.")
     collection = db["shoes"]
-    total_shoes = collection.count_documents({})  # Count the total documents in the 'shoes' collection
+    total_shoes = collection.count_documents({})  
     print(f"Total Shoes in Database: {total_shoes}")
