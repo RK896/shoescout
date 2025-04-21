@@ -28,9 +28,10 @@ def add_shoes_to_db(shoes, db):
         existing_shoe = collection.find_one({"model": model})
         if existing_shoe:
             existing_retailer = None
-            for retailer_entry in existing_shoe["retailers"]:
-                existing_retailer = retailer_entry
-                break
+            for retailer_entry in existing_shoe.get("retailers", []):
+                if retailer_entry["retailer"] == retailer:
+                    existing_retailer = retailer_entry
+                    break
 
             if existing_retailer:
                 existing_price = float(existing_retailer["price"].replace("$", ""))
@@ -39,10 +40,10 @@ def add_shoes_to_db(shoes, db):
                 if new_price < existing_price:
                     collection.update_one({"model": model, "retailers.retailer": retailer}, 
                                           {"$set": {
-                                              "retailer.$.price": price
+                                              "retailers.$.price": price
                                           }})
             else:
-                collection.update_one({"model:": model}, 
+                collection.update_one({"model": model}, 
                 {
                     "$addToSet": {
                         "retailers": {
@@ -76,6 +77,7 @@ def add_shoes_to_db(shoes, db):
 
 if __name__ == "__main__":
     db = get_db() 
+    db["shoes"].delete_many({})
     shoes = runningwarehouse.scrape_runningwarehouse()
     shoes.extend(nike.scrape_nike())
     add_shoes_to_db(shoes, db)  
