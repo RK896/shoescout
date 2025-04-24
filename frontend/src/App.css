@@ -2,6 +2,20 @@
   padding: 2rem;
   font-family: sans-serif;
   background-color: #fefefe;
+  width: fit-content;
+  display: grid
+}
+
+.container {
+  display: block;
+  box-sizing: border-box;
+}
+
+body, html {
+  width: 100%;
+  height: 100%;
+  margin: 1rem;
+  padding: 0rem;
 }
 
 h1 {
@@ -10,7 +24,7 @@ h1 {
 }
 
 .shoe-grid {
-  display: grid;
+  display: flex;
   grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
   gap: 1.5rem;
   margin-top: 2rem;
