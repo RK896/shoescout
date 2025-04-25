@@ -1,6 +1,19 @@
 from pymongo import MongoClient
 from pymongo.server_api import ServerApi
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from scraper import nike, runningwarehouse, asics
+
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins = ["*"],
+    allow_credentials = True,
+    allow_methods=["*"],
+    allow_headers=["*"]
+    )
+
 
 def get_db(): 
     uri = "mongodb+srv://shoeScout:4kN0XfmvxGpXvKBY@shoescout.lenwqmf.mongodb.net/?retryWrites=true&w=majority&appName=shoeScout"
@@ -13,6 +26,23 @@ def get_db():
     
     db = client["shoe_scout"]
     return db
+
+db = get_db()
+collection = db["shoes"]
+
+@app.get("/shoes")
+def get_shoes():
+    shoes = list(collection.find({}, {"_id": 0}))
+    return shoes
+
+@app.post("/scrape")
+def scrape_and_store():
+    shoes = runningwarehouse.scrape_runningwarehouse()
+    shoes.extend(nike.scrape_nike())
+    add_shoes_to_db(shoes, db)  
+
+
+
 
 def add_shoes_to_db(shoes, db):
     collection = db["shoes"]
