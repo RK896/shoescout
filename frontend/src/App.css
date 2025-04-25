@@ -2,13 +2,12 @@
   padding: 2rem;
   font-family: sans-serif;
   background-color: #fefefe;
-  width: fit-content;
-  display: grid
+  width: 100%;
+  margin: 0 auto;
 }
 
 .container {
   display: block;
-  box-sizing: border-box;
 }
 
 body, html {
@@ -34,12 +33,16 @@ h1 {
   background: #fff;
   padding: 1rem;
   border-radius: 1rem;
+  max-width: 300px;
+  max-height: 420px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   text-align: center;
 }
 
 .shoe-img {
-  width: 100%;
   max-height: 200px;
   object-fit: contain;
   border-radius: 1rem;
