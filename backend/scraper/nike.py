@@ -26,7 +26,7 @@ def scrape_nike():
     chrome_options.add_argument("--disable-gpu") 
     chrome_options.add_argument("--blink-settings=imagesEnabled=false")  
     chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--headless")
+
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     driver.set_page_load_timeout(10)
     driver.get(url)

@@ -40,7 +40,7 @@ def scrape_and_store():
     shoes = runningwarehouse.scrape_runningwarehouse()
     shoes.extend(nike.scrape_nike())
     add_shoes_to_db(shoes, db)  
-
+    return {"message": "shoes scraped and stored", "count": len(shoes)}
 
 
 
@@ -105,13 +105,3 @@ def add_shoes_to_db(shoes, db):
                 upsert=True
             )
 
-if __name__ == "__main__":
-    db = get_db() 
-    db["shoes"].delete_many({})
-    shoes = runningwarehouse.scrape_runningwarehouse()
-    shoes.extend(nike.scrape_nike())
-    add_shoes_to_db(shoes, db)  
-    print("Shoes saved to MongoDB.")
-    collection = db["shoes"]
-    total_shoes = collection.count_documents({})  
-    print(f"Total Shoes in Database: {total_shoes}")

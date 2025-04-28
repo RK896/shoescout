@@ -21,7 +21,8 @@ function App() {
 
   return (
     <div className='app-container'>
-      <h1>ShoeScout 🏃‍♂️</h1>
+      <div className='header'>
+      <h1>Shoe Scout 🏃‍♂️</h1>
       <h2>Find the best deals on running shoes!</h2>
       <input
         type="text" 
@@ -32,6 +33,7 @@ function App() {
         onChange={(e) => setSearchTerm(e.target.value)}
         className='search-bar'
         />
+      </div>
 
       <div className='shoe-grid'>
         {filteredShoes.map((shoe, index) => (
@@ -39,6 +41,7 @@ function App() {
             <img src={shoe.image} alt={shoe.model} className='shoe-img'/>
             <h2>{shoe.model}</h2>
             <p><strong>Brand:</strong> {shoe.brand}</p>
+            <p><strong>Retailers:</strong></p>
             <ul>
               {shoe.retailers.map((r,i) =>(
                 <li key = {i}>

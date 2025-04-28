@@ -17,22 +17,13 @@ def scrape_runningwarehouse():
         name_tag = product.find("div", class_="cattable-wrap-cell-info-name")
         price_tag = product.find("div", class_="cattable-wrap-cell-info-price")
         link_tag = product.find("a", class_="cattable-wrap-cell-info")
-        image_tag = product.find("div", class_="cattable-wrap-cell-imgwrap")
-        img_url = None
-        if image_tag:
-            image_link_tag = image_tag.find("a", class_="cattable-wrap-cell-imgwrap-inner")
-            if image_link_tag:
-                img = image_link_tag.find("img")
-                if img and img.has_attr("src"):
-                    img_url = img["src"]
-
-                    # Ensure that the image is the main product image, not an ad or other content.
-                    if "watermark" in img_url:
-                        img_url = img_url.split("?")[0]  # Remove query parameters (like nw=500, etc.)
+        image_tag = product.find("img", class_="cattable-wrap-cell-imgwrap-inner-img")
+            
 
 
         if name_tag and price_tag and link_tag and image_tag:
             name = name_tag.text.strip()
+            img_url = image_tag["src"]
             raw_price = price_tag.text.strip()
             if raw_price.count("$") > 1:
                 prices = raw_price.split("$")
