@@ -1,32 +1,29 @@
 .app-container {
-  padding: 2rem;
+  width: 100%;
+  min-height: 100vh;
   font-family: sans-serif;
   background-color: #fefefe;
   margin: 0 auto;
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
-  justify-content: flex-start;
   align-items: center;
 }
 
 h1 {
   text-align:center;
-  width: 100%;
   color: #333;
   visibility: visible; 
-  display: block; 
-  position: relative;
-  z-index: 10; 
 } 
 
 .header {
-  width:100%;
-  background-color:aquamarine;
-  margin:0;
-  padding:0;
-  display:grid;
+  width: 100vw;
+  background-color: aquamarine;
+  padding: 2rem 1rem;
   text-align: center;
+  box-sizing: border-box;
+  position: sticky;
+  top: 0;
+  z-index: 100;
 }
 
 body, html {
@@ -74,3 +71,4 @@ body, html {
   border-radius: 0.5rem;
   border: 1px solid #ccc;
 }
+
