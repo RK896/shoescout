@@ -1,22 +1,20 @@
 
 from selenium import webdriver
-from selenium.webdriver.chrome import options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from webdriver_manager.chrome import ChromeDriverManager
 import time
 
-#automating scrolling to load content
 def scroll_to_bottom(driver, pause_time=5, max_scrolls=3):
     last_height = driver.execute_script("return document.body.scrollHeight")
     scrolls = 0
 
     while scrolls < max_scrolls:
         driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        time.sleep(pause_time)  #wait for content to load
+        time.sleep(pause_time)  
         new_height = driver.execute_script("return document.body.scrollHeight")
         if new_height == last_height:
-            break  #if theres no new content
+            break  
         last_height = new_height
         scrolls += 1
 
@@ -24,7 +22,6 @@ def scrape_nike():
     url = "https://www.nike.com/w/mens-running-shoes-37v7jznik1zy7ok"
     chrome_options = webdriver.ChromeOptions()
     chrome_options.add_argument("--disable-gpu") 
-    chrome_options.add_argument("--blink-settings=imagesEnabled=false")  
     chrome_options.add_argument("--no-sandbox")
 
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
@@ -55,6 +52,7 @@ def scrape_nike():
                 })
         except Exception as e:
             print(f"skipping a product due to missing info")
+            continue
     
     driver.quit()
     return shoes
