@@ -43,7 +43,6 @@ def scrape_and_store():
     return {"message": "shoes scraped and stored", "count": len(shoes)}
 
 
-
 def add_shoes_to_db(shoes, db):
     collection = db["shoes"]
 
@@ -105,3 +104,5 @@ def add_shoes_to_db(shoes, db):
                 upsert=True
             )
 
+collection.delete_many({})
+scrape_and_store()
