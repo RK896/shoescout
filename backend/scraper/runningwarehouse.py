@@ -27,15 +27,13 @@ def scrape_runningwarehouse():
             EC.presence_of_element_located((By.XPATH, "//button[contains(text(), 'Accept All Cookies')]"))
         )
         accept_button = driver.find_element(By.XPATH, "//button[contains(text(), 'Accept All Cookies')]")
-        accept_button.click()  # Accept the pop-up
-        print("Pop-up accepted")
+        accept_button.click()  
     except Exception as e:
-        print("No pop-up or pop-up already accepted")
+        time.sleep(2)
     WebDriverWait(driver, 10)
 
 
     products = driver.find_elements(By.CLASS_NAME, "cattable-wrap-cell")
-    print(f"Found {len(products)} products")
     shoes = []
     seen = set()
 
@@ -80,6 +78,4 @@ def scrape_runningwarehouse():
 
     return shoes
 
-if __name__ == "__main__":
-    results = scrape_runningwarehouse()
-    print(len(results))
+

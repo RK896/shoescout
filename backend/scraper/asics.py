@@ -12,7 +12,7 @@ def asics_scraper():
     chrome_options.add_argument("--disable-gpu") 
     chrome_options.add_argument("--blink-settings=imagesEnabled=false")  
     chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64" +
+    chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64" +
                                 "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36")
 
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)

@@ -2,7 +2,12 @@ from pymongo import MongoClient
 from pymongo.server_api import ServerApi
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from scraper import nike, runningwarehouse, asics
+from scraper import nike, runningwarehouse, newbalance
+from dotenv import load_dotenv
+import os
+
+
+
 
 app = FastAPI()
 
@@ -16,7 +21,8 @@ app.add_middleware(
 
 
 def get_db(): 
-    uri = "mongodb+srv://shoeScout:4kN0XfmvxGpXvKBY@shoescout.lenwqmf.mongodb.net/?retryWrites=true&w=majority&appName=shoeScout"
+    load_dotenv()
+    uri = os.getenv("MONGO_URI")
     client = MongoClient(uri, server_api=ServerApi('1'))
     try:
         client.admin.command('ping')
@@ -39,6 +45,7 @@ def get_shoes():
 def scrape_and_store():
     shoes = runningwarehouse.scrape_runningwarehouse()
     shoes.extend(nike.scrape_nike())
+    shoes.extend(newbalance.scrape_newbalance())
     add_shoes_to_db(shoes, db)  
     return {"message": "shoes scraped and stored", "count": len(shoes)}
 
@@ -104,5 +111,3 @@ def add_shoes_to_db(shoes, db):
                 upsert=True
             )
 
-collection.delete_many({})
-scrape_and_store()

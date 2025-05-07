@@ -50,14 +50,10 @@ def scrape_nike():
                 "retailer": "Nike"
                 })
         except Exception as e:
-            print(f"skipping a product due to missing info")
             continue
     
     driver.quit()
     return shoes
 
-if __name__ == "__main__": 
-    results = scrape_nike()
-    print(len(results))
         
 
