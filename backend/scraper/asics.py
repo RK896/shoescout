@@ -4,6 +4,7 @@ from selenium.webdriver.common.by import By
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+import time
 
 def asics_scraper():
     url = "https://www.asics.com/us/en-us/mens-running-shoes/c/aa10201000/?start=0&sz=350"
@@ -27,16 +28,18 @@ def asics_scraper():
         print("Pop-up accepted")
     except Exception as e:
         print("No pop-up or pop-up already accepted")
+
+    time.sleep(15)
     WebDriverWait(driver, 10)
     
 
-    products = driver.find_elements(By.CLASS_NAME, "grid-tile")
+    products = driver.find_elements(By.CLASS_NAME, "product-tile")
     
     shoes = []
 
     for shoe in products:
         
-        name_tag = shoe.find_element(By.CSS_SELECTOR, ".product-tile__text.product-tile__text--large")
+        name_tag = shoe.find_element(By.CLASS_NAME, "product-tile__text product-name")
         price_tag = shoe.find_element(By.CLASS_NAME, "price-sales")
         link_tag = driver.find_elements(By.CLASS_NAME, "product-tile__link")
 
