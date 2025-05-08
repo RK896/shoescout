@@ -11,7 +11,7 @@ function App() {
   )
 
   useEffect(() => {
-    fetch("http://localhost:8000/shoes")
+    fetch("https://shoescout.onrender.com/shoes")
       .then(res => res.json())        
       .then(data => setShoes(data))
       .catch(err => console.error("Failed to fetch shoes:", err));  
