@@ -3,7 +3,6 @@ from pymongo.server_api import ServerApi
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from scraper import nike, runningwarehouse, newbalance
-from dotenv import load_dotenv
 import os
 
 
@@ -19,7 +18,6 @@ app.add_middleware(
 
 
 def get_db(): 
-    load_dotenv()
     uri = os.getenv("MONGO_URI")
     client = MongoClient(uri, server_api=ServerApi('1'))
     try:
@@ -109,5 +107,3 @@ def add_shoes_to_db(shoes, db):
                 upsert=True
             )
 
-if __name__ == "__main__":
-    scrape_and_store()
