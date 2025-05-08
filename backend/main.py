@@ -7,8 +7,6 @@ from dotenv import load_dotenv
 import os
 
 
-
-
 app = FastAPI()
 
 app.add_middleware(
@@ -111,3 +109,5 @@ def add_shoes_to_db(shoes, db):
                 upsert=True
             )
 
+if __name__ == "__main__":
+    scrape_and_store()
