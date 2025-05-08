@@ -29,6 +29,10 @@ def get_db():
     db = client["shoe_scout"]
     return db
 
+@app.get("/")
+def read_root():
+    return {"message": "ShoeScout API is live!"}
+
 db = get_db()
 collection = db["shoes"]
 
