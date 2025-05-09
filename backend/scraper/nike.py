@@ -1,7 +1,5 @@
 from driver_setup import get_chrome_driver
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
-from webdriver_manager.chrome import ChromeDriverManager
 import time
 
 def scroll_to_bottom(driver, pause_time=5, max_scrolls=3):
