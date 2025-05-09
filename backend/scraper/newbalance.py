@@ -2,7 +2,6 @@ from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from webdriver_manager.chrome import ChromeDriverManager
-import undetected_chromedriver as uc
 import time, random
 
 
@@ -21,15 +20,16 @@ def scroll_to_bottom(driver, pause_time=5, max_scrolls=3):
 
 def scrape_newbalance():
     url = "https://www.newbalance.com/men/shoes/running/"
-    chrome_options = uc.ChromeOptions()
+    chrome_options = webdriver.ChromeOptions()
+    chrome_options.add_argument("--headless")
     chrome_options.add_argument("--disable-gpu") 
     chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                         "AppleWebKit/537.36 (KHTML, like Gecko) "
-                         "Chrome/122.0.0.0 Safari/537.36")
+    chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+    chrome_options.add_argument("--header='Accept-Language: en-US,en;q=0.9'")
+    chrome_options.add_argument("--header='Accept-Encoding: gzip, deflate, br'")
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
 
-    driver = uc.Chrome(options=chrome_options)
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     driver.set_page_load_timeout(10)
     driver.get(url)
     time.sleep(random.uniform(2, 5))
@@ -64,7 +64,3 @@ def scrape_newbalance():
     
     driver.quit()
     return shoes
-
-
-
-
