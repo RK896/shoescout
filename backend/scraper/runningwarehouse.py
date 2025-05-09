@@ -1,25 +1,13 @@
 import html, time
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
+from driver_setup import get_chrome_driver
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
-from webdriver_manager.chrome import ChromeDriverManager
 
 
 def scrape_runningwarehouse():
-
-    options = webdriver.ChromeOptions()
-    options.add_argument("--disable-gpu") 
-    options.add_argument("--no-sandbox")
-    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                         "AppleWebKit/537.36 (KHTML, like Gecko) "
-                         "Chrome/122.0.0.0 Safari/537.36")
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-    driver.set_page_load_timeout(20)
-
-
     url = "https://www.runningwarehouse.com/Mens_Road_Running_Shoes/catpage-MBESTUSE.html"
+    driver = get_chrome_driver()
     driver.get(url)
     time.sleep(3)
     try:

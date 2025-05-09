@@ -1,4 +1,4 @@
-from selenium import webdriver
+from driver_setup import get_chrome_driver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from webdriver_manager.chrome import ChromeDriverManager
@@ -19,12 +19,7 @@ def scroll_to_bottom(driver, pause_time=5, max_scrolls=3):
 
 def scrape_nike():
     url = "https://www.nike.com/w/mens-running-shoes-37v7jznik1zy7ok"
-    chrome_options = webdriver.ChromeOptions()
-    chrome_options.add_argument("--disable-gpu") 
-    chrome_options.add_argument("--no-sandbox")
-
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
-    driver.set_page_load_timeout(10)
+    driver = get_chrome_driver()
     driver.get(url)
 
     scroll_to_bottom(driver)
