@@ -1,0 +1,12 @@
+name: ping render application
+
+on:
+  schedule:
+    - cron '*/15 11-23,0-5 * * *'
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: ping render
+        run: curl -s https://shoescout.onrender.com > /dev/null
