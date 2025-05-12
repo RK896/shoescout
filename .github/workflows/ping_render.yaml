@@ -2,7 +2,7 @@ name: ping render application
 
 on:
   schedule:
-    - cron '*/15 11-23,0-5 * * *'
+    - cron: '*/15 11-23,0-5 * * *'
   workflow_dispatch:
 
 jobs:
