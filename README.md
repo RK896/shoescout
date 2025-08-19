@@ -25,10 +25,11 @@ users can compare shoes across retailers and make informed purchasing decisions.
 
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black): Frontend framework for the UI  
 
-![Selenium](https://img.shields.io/badge/Selenium-Testing-43B02A?logo=selenium): Web scraping to collect shoe data from retailer websites  
+![Selenium](https://img.shields.io/badge/Selenium-43B02A?logo=selenium): Web scraping to collect shoe data from retailer websites  
 
 ## To Do
 
 - Add more retailer scrapers ex: Adidas, New Balance, Zappos, etc.
 - Add sorting and filtering options
+
 
