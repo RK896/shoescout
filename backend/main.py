@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from scraper import nike, runningwarehouse, newbalance
 import os
-
+from embeddings import generate_embeddings, create_shoe_text
 
 app = FastAPI()
 
@@ -39,7 +39,17 @@ collection = db["shoes"]
 @app.get("/shoes")
 def get_shoes():
     shoes = list(collection.find({}, {"_id": 0}))
+    for shoe in shoes:
+        if shoe.get("embeddings") is None:
+            shoe["embeddings"] = generate_embeddings(shoe)
+            collection.update_one({"model": shoe["model"]}, {"$set": {"embeddings": shoe["embeddings"]}})
     return shoes
+
+@app.get("/search")
+def search_shoes(query: str=Query(...)):
+    query_embedding = generate_embeddings(query)
+    cosine_similarities = np.dot(query_embedding, np.array(collection.find_one({"model": query})["embeddings"]))
+    return cosine_similaritiesdid
 
 @app.post("/scrape")
 def scrape_and_store():
