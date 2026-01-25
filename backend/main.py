@@ -1,10 +1,11 @@
 from pymongo import MongoClient
 from pymongo.server_api import ServerApi
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from scraper import nike, runningwarehouse, newbalance
 import os
-from embeddings import generate_embeddings, create_shoe_text
+from embeddings import generate_embeddings, create_shoe_text, model
+import numpy as np
 
 app = FastAPI()
 
@@ -46,10 +47,17 @@ def get_shoes():
     return shoes
 
 @app.get("/search")
-def search_shoes(query: str=Query(...)):
-    query_embedding = generate_embeddings(query)
-    cosine_similarities = np.dot(query_embedding, np.array(collection.find_one({"model": query})["embeddings"]))
-    return cosine_similaritiesdid
+def search_shoes(q: str=Query(...)):
+    query_embedding = model.encode(q)
+    shoes = list(collection.find({"embeddings": {$exists: true}}, {"_id": 0}))
+
+    results = []
+    for shoe in shoes:
+        shoe_embedding = np.array(shoe["embeddings"])
+        similarity = np.dot(query_embedding, shoe_embedding)/(np.linalg.norm(query_embedding)*np.linalg.norm(shoe_embedding))
+        results.append((similarity, shoe))
+    results.sort(key=lambda x: x[0], reverse=True)
+    return [shoe for shoe in results[:10]] #return top 10 matches
 
 @app.post("/scrape")
 def scrape_and_store():
