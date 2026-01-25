@@ -4,19 +4,40 @@ import { useState, useEffect } from "react";
 function App() {
   const [searchTerm, setSearchTerm] = useState("");
   const [shoes, setShoes] = useState([]);
+  const [loading, setLoading] = useState(false);
 
-  const filteredShoes = shoes.filter(
-    (shoe) =>
-      shoe.model.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      shoe.brand.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
+  // Fetch all shoes on initial load
   useEffect(() => {
     fetch("https://shoescout.onrender.com/shoes")
       .then((res) => res.json())
       .then((data) => setShoes(data))
       .catch((err) => console.error("Failed to fetch shoes:", err));
   }, []);
+
+  // Semantic search when user types
+  useEffect(() => {
+    if (searchTerm.trim() === "") {
+      // If search is empty, fetch all shoes
+      fetch("https://shoescout.onrender.com/shoes")
+        .then((res) => res.json())
+        .then((data) => setShoes(data))
+        .catch((err) => console.error("Failed to fetch shoes:", err));
+      return;
+    }
+
+    setLoading(true);
+    // Call semantic search endpoint
+    fetch(`https://shoescout.onrender.com/search?q=${encodeURIComponent(searchTerm)}`)
+      .then((res) => res.json())
+      .then((data) => {
+        setShoes(data);
+        setLoading(false);
+      })
+      .catch((err) => {
+        console.error("Failed to search shoes:", err);
+        setLoading(false);
+      });
+  }, [searchTerm]);
 
   return (
     <div className="app">
@@ -31,7 +52,7 @@ function App() {
           type="text"
           id="search-input"
           name="search"
-          placeholder="Search by model or brand"
+          placeholder="Search by model, brand, or description (e.g., 'daily trainer for long runs')"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="search-bar"
@@ -39,14 +60,21 @@ function App() {
       </div>
       <div className="app-container">
         <div className="shoe-grid">
-          {filteredShoes.length === 0 && (
+          {loading && (
+            <p
+              style={{ textAlign: "center", fontSize: "1.2rem", color: "#666" }}
+            >
+              Searching...
+            </p>
+          )}
+          {!loading && shoes.length === 0 && (
             <p
               style={{ textAlign: "center", fontSize: "1.2rem", color: "#666" }}
             >
               No shoes found. Try a different search.
             </p>
           )}
-          {filteredShoes.map((shoe, index) => (
+          {!loading && shoes.map((shoe, index) => (
             <div key={index} className="shoe-card">
               <img src={shoe.image} alt={shoe.model} className="shoe-img" />
               <h2>{shoe.model}</h2>

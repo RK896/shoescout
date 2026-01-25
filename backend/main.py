@@ -49,7 +49,7 @@ def get_shoes():
 @app.get("/search")
 def search_shoes(q: str=Query(...)):
     query_embedding = model.encode(q)
-    shoes = list(collection.find({"embeddings": {$exists: true}}, {"_id": 0}))
+    shoes = list(collection.find({"embeddings": {"$exists": True}}, {"_id": 0}))
 
     results = []
     for shoe in shoes:
@@ -57,7 +57,7 @@ def search_shoes(q: str=Query(...)):
         similarity = np.dot(query_embedding, shoe_embedding)/(np.linalg.norm(query_embedding)*np.linalg.norm(shoe_embedding))
         results.append((similarity, shoe))
     results.sort(key=lambda x: x[0], reverse=True)
-    return [shoe for shoe in results[:10]] #return top 10 matches
+    return [shoe for _,shoe in results[:10]] #return top 10 matches
 
 @app.post("/scrape")
 def scrape_and_store():
