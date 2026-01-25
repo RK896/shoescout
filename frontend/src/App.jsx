@@ -1,41 +1,76 @@
 import "./App.css";
 import { useState, useEffect } from "react";
 
+// API base URL - change to "http://localhost:8000" for local development
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+
 function App() {
   const [searchTerm, setSearchTerm] = useState("");
   const [shoes, setShoes] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   // Fetch all shoes on initial load
   useEffect(() => {
-    fetch("https://shoescout.onrender.com/shoes")
-      .then((res) => res.json())
-      .then((data) => setShoes(data))
-      .catch((err) => console.error("Failed to fetch shoes:", err));
+    fetch(`${API_BASE_URL}/shoes`)
+      .then((res) => {
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
+        return res.json();
+      })
+      .then((data) => {
+        setShoes(data);
+        setError(null);
+      })
+      .catch((err) => {
+        console.error("Failed to fetch shoes:", err);
+        setError("Failed to load shoes. Make sure the backend server is running.");
+      });
   }, []);
 
   // Semantic search when user types
   useEffect(() => {
     if (searchTerm.trim() === "") {
       // If search is empty, fetch all shoes
-      fetch("https://shoescout.onrender.com/shoes")
-        .then((res) => res.json())
-        .then((data) => setShoes(data))
-        .catch((err) => console.error("Failed to fetch shoes:", err));
+      fetch(`${API_BASE_URL}/shoes`)
+        .then((res) => {
+          if (!res.ok) {
+            throw new Error(`HTTP error! status: ${res.status}`);
+          }
+          return res.json();
+        })
+        .then((data) => {
+          setShoes(data);
+          setError(null);
+        })
+        .catch((err) => {
+          console.error("Failed to fetch shoes:", err);
+          setError("Failed to load shoes.");
+        });
       return;
     }
 
     setLoading(true);
+    setError(null);
     // Call semantic search endpoint
-    fetch(`https://shoescout.onrender.com/search?q=${encodeURIComponent(searchTerm)}`)
-      .then((res) => res.json())
+    fetch(`${API_BASE_URL}/search?q=${encodeURIComponent(searchTerm)}`)
+      .then((res) => {
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
+        return res.json();
+      })
       .then((data) => {
-        setShoes(data);
+        setShoes(Array.isArray(data) ? data : []);
         setLoading(false);
+        setError(null);
       })
       .catch((err) => {
         console.error("Failed to search shoes:", err);
+        setError(`Search failed: ${err.message}`);
         setLoading(false);
+        setShoes([]);
       });
   }, [searchTerm]);
 
@@ -60,14 +95,21 @@ function App() {
       </div>
       <div className="app-container">
         <div className="shoe-grid">
-          {loading && (
+          {error && (
+            <p
+              style={{ textAlign: "center", fontSize: "1.2rem", color: "#ff4444" }}
+            >
+              {error}
+            </p>
+          )}
+          {loading && !error && (
             <p
               style={{ textAlign: "center", fontSize: "1.2rem", color: "#666" }}
             >
               Searching...
             </p>
           )}
-          {!loading && shoes.length === 0 && (
+          {!loading && !error && shoes.length === 0 && (
             <p
               style={{ textAlign: "center", fontSize: "1.2rem", color: "#666" }}
             >

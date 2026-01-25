@@ -1,10 +1,25 @@
 from pymongo import MongoClient
 from pymongo.server_api import ServerApi
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from scraper import nike, runningwarehouse, newbalance
 import os
-from embeddings import generate_embeddings, create_shoe_text, model
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+try:
+    from embeddings import generate_embeddings, create_shoe_text, model, EMBEDDINGS_AVAILABLE, generate_embeddings_batch
+except Exception as e:
+    print(f"Warning: Could not import embeddings module: {e}")
+    EMBEDDINGS_AVAILABLE = False
+    model = None
+    def generate_embeddings(shoe_dict):
+        raise ImportError("Embeddings not available")
+    def generate_embeddings_batch(shoe_dicts):
+        raise ImportError("Embeddings not available")
+    def create_shoe_text(shoe_dict):
+        return f"{shoe_dict.get('brand', '')} {shoe_dict.get('model', '')}"
 import numpy as np
 
 app = FastAPI()
@@ -34,30 +49,90 @@ def get_db():
 def read_root():
     return {"message": "ShoeScout API is live!"}
 
+@app.get("/health")
+def health_check():
+    try:
+        # Test database connection
+        collection.find_one()
+        return {"status": "healthy", "database": "connected", "embeddings": EMBEDDINGS_AVAILABLE}
+    except Exception as e:
+        return {"status": "unhealthy", "database": "disconnected", "error": str(e)}
+
 db = get_db()
 collection = db["shoes"]
 
 @app.get("/shoes")
 def get_shoes():
-    shoes = list(collection.find({}, {"_id": 0}))
-    for shoe in shoes:
-        if shoe.get("embeddings") is None:
-            shoe["embeddings"] = generate_embeddings(shoe)
-            collection.update_one({"model": shoe["model"]}, {"$set": {"embeddings": shoe["embeddings"]}})
-    return shoes
+    try:
+        shoes = list(collection.find({}, {"_id": 0}))
+        
+        # Ensure all embeddings are lists (not numpy arrays) for JSON serialization
+        for shoe in shoes:
+            if "embeddings" in shoe and shoe["embeddings"] is not None:
+                if hasattr(shoe["embeddings"], 'tolist'):
+                    shoe["embeddings"] = shoe["embeddings"].tolist()
+                elif not isinstance(shoe["embeddings"], list):
+                    # Convert any other array-like to list
+                    shoe["embeddings"] = list(shoe["embeddings"])
+        
+        # Generate embeddings in batch (much faster than one-by-one)
+        # Only generate for first 20 shoes without embeddings to avoid blocking
+        if EMBEDDINGS_AVAILABLE:
+            shoes_needing_embeddings = [s for s in shoes if s.get("embeddings") is None][:20]
+            if shoes_needing_embeddings:
+                try:
+                    # Batch process - much faster!
+                    embeddings = generate_embeddings_batch(shoes_needing_embeddings)
+                    for shoe, embedding in zip(shoes_needing_embeddings, embeddings):
+                        # embeddings are already lists from generate_embeddings_batch
+                        collection.update_one({"model": shoe["model"]}, {"$set": {"embeddings": embedding}})
+                        # Update in the returned list too
+                        shoe["embeddings"] = embedding
+                except Exception as e:
+                    print(f"Error generating embeddings batch: {e}")
+                    # Fallback to individual generation
+                    for shoe in shoes_needing_embeddings:
+                        try:
+                            embedding = generate_embeddings(shoe)
+                            # embedding is already a list from generate_embeddings
+                            collection.update_one({"model": shoe["model"]}, {"$set": {"embeddings": embedding}})
+                            shoe["embeddings"] = embedding
+                        except Exception as e2:
+                            print(f"Error generating embedding for {shoe.get('model', 'unknown')}: {e2}")
+                            continue
+        return shoes
+    except Exception as e:
+        print(f"Error in get_shoes: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch shoes: {str(e)}")
 
 @app.get("/search")
 def search_shoes(q: str=Query(...)):
-    query_embedding = model.encode(q)
-    shoes = list(collection.find({"embeddings": {"$exists": True}}, {"_id": 0}))
+    if not EMBEDDINGS_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Semantic search not available. Please upgrade sentence-transformers package.")
+    try:
+        query_embedding = model.encode(q)
+        shoes = list(collection.find({"embeddings": {"$exists": True}}, {"_id": 0}))
 
-    results = []
-    for shoe in shoes:
-        shoe_embedding = np.array(shoe["embeddings"])
-        similarity = np.dot(query_embedding, shoe_embedding)/(np.linalg.norm(query_embedding)*np.linalg.norm(shoe_embedding))
-        results.append((similarity, shoe))
-    results.sort(key=lambda x: x[0], reverse=True)
-    return [shoe for _,shoe in results[:10]] #return top 10 matches
+        if not shoes:
+            return []
+
+        results = []
+        for shoe in shoes:
+            if "embeddings" not in shoe:
+                continue
+            try:
+                shoe_embedding = np.array(shoe["embeddings"])
+                similarity = np.dot(query_embedding, shoe_embedding)/(np.linalg.norm(query_embedding)*np.linalg.norm(shoe_embedding))
+                results.append((similarity, shoe))
+            except Exception as e:
+                print(f"Error processing shoe {shoe.get('model', 'unknown')}: {e}")
+                continue
+        
+        results.sort(key=lambda x: x[0], reverse=True)
+        return [shoe for _,shoe in results[:10]] #return top 10 matches
+    except Exception as e:
+        print(f"Search error: {e}")
+        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
 @app.post("/scrape")
 def scrape_and_store():
