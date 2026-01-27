@@ -71,8 +71,7 @@ function ShoeCard({ shoe }) {
                   <strong>{review.post_title}</strong>
                   <br />
                   <span style={{ color: "#666" }}>
-                    {review.post_text.substring(0, 200)}
-                    {review.post_text.length > 200 ? "..." : ""}
+                    {review.summary || review.post_text.substring(0, 150) + "..."}
                   </span>
                   <br />
                   <a 
@@ -81,7 +80,7 @@ function ShoeCard({ shoe }) {
                     rel="noopener noreferrer"
                     className="review-link"
                   >
-                    Read more on Reddit →
+                    Read full review on Reddit →
                   </a>
                 </li>
               ))}
