@@ -221,11 +221,24 @@ def get_reviews_for_shoe(shoe_model: str):
     if shoe_review:
         reviews = shoe_review.get("reviews", [])
         # Summaries are already stored in the database
-        # If a review doesn't have a summary (old data), generate it on-the-fly
+        # If a review doesn't have a summary (old data), generate it on-the-fly and save it
         from review_summarizer import generate_summary
+        needs_update = False
         for review in reviews:
             if "summary" not in review or not review.get("summary"):
-                review["summary"] = generate_summary(review.get("post_text", ""))
+                summary = generate_summary(review.get("post_text", ""))
+                if summary:  # Only update if we got a valid summary
+                    review["summary"] = summary
+                    # Update this review's summary in the database
+                    reviews_collection.update_one(
+                        {
+                            "shoe_model": shoe_model,
+                            "reviews.post_url": review.get("post_url")
+                        },
+                        {
+                            "$set": {"reviews.$.summary": summary}
+                        }
+                    )
         return reviews
     return []
 
