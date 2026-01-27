@@ -8,7 +8,7 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 function ShoeCard({ shoe }) {
   const [reviews, setReviews] = useState([]);
   const [loadingReviews, setLoadingReviews] = useState(false);
-  const [isFlipped, setIsFlipped] = useState(false);
+  const [showReviews, setShowReviews] = useState(false);
 
   useEffect(() => {
     // Fetch reviews for this shoe
@@ -25,61 +25,49 @@ function ShoeCard({ shoe }) {
       });
   }, [shoe.model]);
 
-  const handleCardClick = () => {
-    if (reviews.length > 0) {
-      setIsFlipped(!isFlipped);
-    }
-  };
-
   return (
-    <div 
-      className={`shoe-card-container ${isFlipped ? 'flipped' : ''}`}
-      onClick={handleCardClick}
-      style={{ cursor: reviews.length > 0 ? 'pointer' : 'default' }}
-    >
-      <div className="shoe-card-inner">
-        {/* Front of card */}
-        <div className="shoe-card-front">
-          <img src={shoe.image} alt={shoe.model} className="shoe-img" />
-          <h2>{shoe.model}</h2>
-          <p>
-            <strong className="brand-name">Brand:</strong> {shoe.brand}
-          </p>
-          <p>
-            <strong className="retailers">Retailers</strong>
-          </p>
-          <ul>
-            {shoe.retailers.map((r, i) => (
-              <li key={i}>
-                <strong>{r.retailer}</strong>: {r.price} -{" "}
-                <a 
-                  href={r.link} 
-                  target="_blank" 
-                  className="buy-button"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  Buy
-                </a>
-              </li>
-            ))}
-          </ul>
-          {reviews.length > 0 && (
-            <p style={{ marginTop: "1rem", fontSize: "0.9rem", color: "#666" }}>
-              💬 {reviews.length} review{reviews.length !== 1 ? 's' : ''} - Click to see
-            </p>
-          )}
-        </div>
+    <div className="shoe-card-wrapper">
+      <div className="shoe-card">
+        <img src={shoe.image} alt={shoe.model} className="shoe-img" />
+        <h2>{shoe.model}</h2>
+        <p>
+          <strong className="brand-name">Brand:</strong> {shoe.brand}
+        </p>
+        <p>
+          <strong className="retailers">Retailers</strong>
+        </p>
+        <ul>
+          {shoe.retailers.map((r, i) => (
+            <li key={i}>
+              <strong>{r.retailer}</strong>: {r.price} -{" "}
+              <a href={r.link} target="_blank" className="buy-button">
+                Buy
+              </a>
+            </li>
+          ))}
+        </ul>
+        
+        {/* Review indicator and toggle button */}
+        {reviews.length > 0 && (
+          <button 
+            className="reviews-toggle-button"
+            onClick={() => setShowReviews(!showReviews)}
+          >
+            💬 {reviews.length} review{reviews.length !== 1 ? 's' : ''} - {showReviews ? 'Hide' : 'Show'} reviews
+          </button>
+        )}
+      </div>
 
-        {/* Back of card - Reviews */}
-        <div className="shoe-card-back">
-          <h2>{shoe.model}</h2>
+      {/* Reviews section - expands below card */}
+      {showReviews && reviews.length > 0 && (
+        <div className="reviews-section">
           <strong className="retailers">What People Say</strong>
           {loadingReviews ? (
             <p>Loading reviews...</p>
-          ) : reviews.length > 0 ? (
-            <ul style={{ maxHeight: "400px", overflowY: "auto", fontSize: "0.9rem", textAlign: "left" }}>
+          ) : (
+            <ul className="reviews-list">
               {reviews.slice(0, 3).map((review, i) => (
-                <li key={i} style={{ marginBottom: "1rem", paddingBottom: "1rem", borderBottom: i < reviews.length - 1 ? "1px solid #eee" : "none" }}>
+                <li key={i} className="review-item">
                   <strong>{review.post_title}</strong>
                   <br />
                   <span style={{ color: "#666" }}>
@@ -91,22 +79,16 @@ function ShoeCard({ shoe }) {
                     href={review.post_url} 
                     target="_blank" 
                     rel="noopener noreferrer"
-                    style={{ fontSize: "0.8rem", color: "#0066cc" }}
-                    onClick={(e) => e.stopPropagation()}
+                    className="review-link"
                   >
                     Read more on Reddit →
                   </a>
                 </li>
               ))}
             </ul>
-          ) : (
-            <p>No reviews yet</p>
           )}
-          <p style={{ marginTop: "1rem", fontSize: "0.9rem", color: "#666" }}>
-            Click to flip back
-          </p>
         </div>
-      </div>
+      )}
     </div>
   );
 }

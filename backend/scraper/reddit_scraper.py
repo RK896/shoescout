@@ -5,6 +5,7 @@ from pymongo.server_api import ServerApi
 import os
 import requests
 import json
+from rapidfuzz import fuzz
 
 load_dotenv()
 
@@ -55,7 +56,14 @@ def match_posts_to_shoes(posts, shoes):
         post_text = f"{post['title']} {post['selftext']}".lower()
         for shoe in shoes:
             shoe_model = shoe['model'].lower()
-            if shoe_model in post_text:
+            shoe_brand = shoe['brand'].lower()
+            # Use partial_ratio to check if shoe model appears anywhere in post text
+            # partial_ratio is better for substring matching (model in long post text)
+            model_match = fuzz.partial_ratio(shoe_model, post_text)
+            brand_model_match = fuzz.partial_ratio(f"{shoe_brand} {shoe_model}", post_text)
+            
+            # Match if similarity is above 70% (adjust threshold as needed)
+            if model_match > 70 or brand_model_match > 70:
                 matched_reviews.append({
                     'shoe_model': shoe['model'],
                     'shoe_brand': shoe['brand'],

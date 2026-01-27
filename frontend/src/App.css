@@ -7,6 +7,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
+  overflow-x: hidden;
 }
 
 .app {
@@ -58,9 +59,10 @@ li {
   color: #444;
 }
 
-.shoe-card-container:hover:not(.flipped) .shoe-card-front {
+.shoe-card:hover {
+  transform: translateY(-7px);
+  transition: 300ms ease;
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.15);
-  transition: box-shadow 300ms ease;
 }
 
 .header {
@@ -121,44 +123,89 @@ html {
   justify-content: center;
 }
 
-.shoe-card-container {
-  perspective: 1000px;
+.shoe-card-wrapper {
   width: 310px;
-  height: 500px;
   margin: 0 auto;
 }
 
-.shoe-card-inner {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  transition: transform 0.6s;
-  transform-style: preserve-3d;
-}
-
-.shoe-card-container.flipped .shoe-card-inner {
-  transform: rotateY(180deg);
-}
-
-.shoe-card-front,
-.shoe-card-back {
-  position: absolute;
-  width: 100%;
-  height: 100%;
-  backface-visibility: hidden;
+.shoe-card {
   box-shadow: 0 4px 12px rgba(111, 66, 193, 0.3);
-  border-radius: 1rem;
   padding: 1rem;
+  border-radius: 1rem;
+  width: 100%;
+  min-height: 400px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   text-align: center;
   background-color: white;
+  box-sizing: border-box;
 }
 
-.shoe-card-back {
-  transform: rotateY(180deg);
-  overflow-y: auto;
+.reviews-toggle-button {
+  margin-top: 1rem;
+  padding: 0.5rem 1rem;
+  background-color: #0066cc;
+  color: white;
+  border: none;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background-color 0.3s ease;
+}
+
+.reviews-toggle-button:hover {
+  background-color: #0052a3;
+}
+
+.reviews-section {
+  margin-top: 1rem;
+  padding: 1rem;
+  background-color: #f9f9f9;
+  border-radius: 0.5rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.reviews-list {
+  list-style-type: none;
+  padding-left: 0;
+  margin-top: 1rem;
+  text-align: left;
+}
+
+.review-item {
+  margin-bottom: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #eee;
+  font-size: 0.9rem;
+}
+
+.review-item:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.review-link {
+  font-size: 0.8rem;
+  color: #0066cc;
+  text-decoration: none;
+}
+
+.review-link:hover {
+  text-decoration: underline;
 }
 
 
