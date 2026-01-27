@@ -4,6 +4,78 @@ import { useState, useEffect } from "react";
 // API base URL - change to "http://localhost:8000" for local development
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
+// ShoeCard component to display individual shoe with reviews
+function ShoeCard({ shoe }) {
+  const [reviews, setReviews] = useState([]);
+  const [loadingReviews, setLoadingReviews] = useState(false);
+
+  useEffect(() => {
+    // Fetch reviews for this shoe
+    setLoadingReviews(true);
+    fetch(`${API_BASE_URL}/reviews/${encodeURIComponent(shoe.model)}`)
+      .then((res) => res.json())
+      .then((data) => {
+        setReviews(Array.isArray(data) ? data : []);
+        setLoadingReviews(false);
+      })
+      .catch((err) => {
+        console.error("Failed to fetch reviews:", err);
+        setLoadingReviews(false);
+      });
+  }, [shoe.model]);
+
+  return (
+    <div className="shoe-card">
+      <img src={shoe.image} alt={shoe.model} className="shoe-img" />
+      <h2>{shoe.model}</h2>
+      <p>
+        <strong className="brand-name">Brand:</strong> {shoe.brand}
+      </p>
+      <p>
+        <strong className="retailers">Retailers</strong>
+      </p>
+      <ul>
+        {shoe.retailers.map((r, i) => (
+          <li key={i}>
+            <strong>{r.retailer}</strong>: {r.price} -{" "}
+            <a href={r.link} target="_blank" className="buy-button">
+              Buy
+            </a>
+          </li>
+        ))}
+      </ul>
+      
+      {/* Reviews Section */}
+      {reviews.length > 0 && (
+        <div style={{ marginTop: "1rem" }}>
+          <strong className="retailers">What People Say</strong>
+          <ul style={{ maxHeight: "200px", overflowY: "auto", fontSize: "0.9rem" }}>
+            {reviews.slice(0, 3).map((review, i) => (
+              <li key={i} style={{ marginBottom: "0.5rem" }}>
+                <strong>{review.post_title}</strong>
+                <br />
+                <span style={{ color: "#666" }}>
+                  {review.post_text.substring(0, 150)}
+                  {review.post_text.length > 150 ? "..." : ""}
+                </span>
+                <br />
+                <a 
+                  href={review.post_url} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  style={{ fontSize: "0.8rem", color: "#0066cc" }}
+                >
+                  Read more on Reddit →
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function App() {
   const [searchTerm, setSearchTerm] = useState("");
   const [shoes, setShoes] = useState([]);
