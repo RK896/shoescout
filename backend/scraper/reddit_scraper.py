@@ -1,5 +1,12 @@
+from typing import Any
+from pymongo import MongoClient
+from dotenv import load_dotenv
+from pymongo.server_api import ServerApi
+import os
 import requests
 import json
+
+load_dotenv()
 
 def scrape_runningshoegeeks(limit=100):
     url = "https://www.reddit.com/r/RunningShoeGeeks/hot.json"
@@ -60,10 +67,77 @@ def match_posts_to_shoes(posts, shoes):
                 })
     return matched_reviews
 
+def store_reviews_in_db(reviews, db):
+    collection = db['reviews']
+    stored_count = 0
 
+    for review in reviews:
+        shoe_model = review['shoe_model']
+        shoe_brand = review['shoe_brand']
+        new_review = {
+            "post_title": review['post_title'],
+            "post_text": review['post_text'],
+            "post_url": review['post_url'],
+            "post_score": review['post_score'],
+            "post_created_utc": review['post_created_utc']
+        }
+
+        # Check if this exact review already exists (by post_url)
+        existing_doc = collection.find_one({
+            "shoe_model": shoe_model,
+            "shoe_brand": shoe_brand,
+            "reviews.post_url": review['post_url']
+        })
+        
+        if existing_doc:
+            continue  # Skip duplicate
+        
+        # Add review to existing shoe or create new document
+        collection.update_one(
+            {"shoe_model": shoe_model, "shoe_brand": shoe_brand},
+            {
+                "$setOnInsert": {
+                    "shoe_model": shoe_model,
+                    "shoe_brand": shoe_brand
+                },
+                "$addToSet": {"reviews": new_review}  # Add review if not already present
+            },
+            upsert=True
+        )
+        stored_count += 1
+    
+    return stored_count
+
+
+def scrape_and_store_reviews(limit=100):
+    uri = os.getenv("MONGO_URI")
+    client = MongoClient(uri, server_api=ServerApi('1'))
+    db = client["shoe_scout"]
+    shoes = get_shoes_from_db()
+    posts = scrape_runningshoegeeks(limit=limit)
+    reviews = match_posts_to_shoes(posts, shoes)
+    stored_count = store_reviews_in_db(reviews, db)
+    return stored_count
+
+def print_reviews():
+    uri = os.getenv("MONGO_URI")
+    client = MongoClient(uri, server_api=ServerApi('1'))
+    db = client["shoe_scout"]
+    collection = db["reviews"]
+    reviews = list(collection.find({}, {"_id": 0, "shoe_model": 1, "shoe_brand": 1, "reviews": 1}))
+    for review in reviews:
+        print(review)
+
+def get_shoes_from_db():
+    uri = os.getenv("MONGO_URI")
+    client = MongoClient(uri, server_api=ServerApi('1'))
+    db = client["shoe_scout"]
+    collection = db["shoes"]
+
+    shoes = list(collection.find({}, {"_id": 0, "model": 1, "brand": 1}))
+    return shoes
 
 if __name__ == "__main__":
-    posts = scrape_runningshoegeeks(limit=5)
-    print(f"Found {len(posts)} posts")
-    if posts:
-        print(f"First post: {posts[0]['title']}")
+    stored = scrape_and_store_reviews(limit=10)
+    print(f"Stored {stored} new reviews")
+    print_reviews()

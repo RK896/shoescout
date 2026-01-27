@@ -204,3 +204,28 @@ def add_shoes_to_db(shoes, db):
                 upsert=True
             )
 
+@app.post("/scrape_reviews")
+def scrape_reddit_reviews():
+    from scraper.reddit_scraper import scrape_and_store_reviews
+    stored = scrape_and_store_reviews(limit=10)
+    return {"message": "reviews scraped and stored", "count": stored}
+
+@app.get("/reviews/{shoe_model}")
+def get_reviews_for_shoe(shoe_model: str):
+    """Get all Reddit reviews for a specific shoe model"""
+    reviews_collection = db["reviews"]
+    shoe_review = reviews_collection.find_one(
+        {"shoe_model": shoe_model},
+        {"_id": 0}
+    )
+    if shoe_review:
+        return shoe_review.get("reviews", [])
+    return []
+
+@app.get("/reviews")
+def get_all_reviews():
+    """Get all reviews grouped by shoe"""
+    reviews_collection = db["reviews"]
+    all_reviews = list(reviews_collection.find({}, {"_id": 0}))
+    return all_reviews
+

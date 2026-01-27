@@ -117,26 +117,7 @@ function App() {
             </p>
           )}
           {!loading && shoes.map((shoe, index) => (
-            <div key={index} className="shoe-card">
-              <img src={shoe.image} alt={shoe.model} className="shoe-img" />
-              <h2>{shoe.model}</h2>
-              <p>
-                <strong className="brand-name">Brand:</strong> {shoe.brand}
-              </p>
-              <p>
-                <strong className="retailers">Retailers</strong>
-              </p>
-              <ul>
-                {shoe.retailers.map((r, i) => (
-                  <li key={i}>
-                    <strong>{r.retailer}</strong>: {r.price} -{" "}
-                    <a href={r.link} target="_blank" className="buy-button">
-                      Buy
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <ShoeCard key={index} shoe={shoe} />
           ))}
         </div>
       </div>
