@@ -213,8 +213,6 @@ def scrape_reddit_reviews():
 @app.get("/reviews/{shoe_model}")
 def get_reviews_for_shoe(shoe_model: str):
     """Get all Reddit reviews for a specific shoe model with summaries"""
-    from review_summarizer import generate_summary
-    
     reviews_collection = db["reviews"]
     shoe_review = reviews_collection.find_one(
         {"shoe_model": shoe_model},
@@ -222,9 +220,12 @@ def get_reviews_for_shoe(shoe_model: str):
     )
     if shoe_review:
         reviews = shoe_review.get("reviews", [])
-        # Add summaries to each review
+        # Summaries are already stored in the database
+        # If a review doesn't have a summary (old data), generate it on-the-fly
+        from review_summarizer import generate_summary
         for review in reviews:
-            review["summary"] = generate_summary(review.get("post_text", ""))
+            if "summary" not in review or not review.get("summary"):
+                review["summary"] = generate_summary(review.get("post_text", ""))
         return reviews
     return []
 

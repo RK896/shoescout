@@ -4,50 +4,70 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Try to import OpenAI, fallback to simple summary if not available
-try:
-    from openai import OpenAI
-    OPENAI_AVAILABLE = True
-    api_key = os.getenv("OPENAI_API_KEY")
-    if api_key:
-        client = OpenAI(api_key=api_key)
-        print("OpenAI client initialized successfully")
-    else:
-        client = None
-        print("Warning: OPENAI_API_KEY not found in environment. Using simple summaries.")
-except ImportError:
-    OPENAI_AVAILABLE = False
-    client = None
-    print("Warning: OpenAI package not installed. Using simple summaries.")
-
 def generate_summary_llm(review_text):
-    """Generate summary using OpenAI LLM"""
-    if not client or not review_text or len(review_text.strip()) == 0:
+    """Generate summary using Hugging Face Inference API (free tier)"""
+    if not review_text or len(review_text.strip()) == 0:
         return None
     
     try:
-        # Truncate if too long (OpenAI has token limits)
-        text = review_text[:2000] if len(review_text) > 2000 else review_text
+        from huggingface_hub import InferenceClient  # type: ignore
         
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",  # Use cheaper model for summaries
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a helpful assistant that summarizes product reviews. Create a concise 1-2 sentence summary highlighting the key points about the product."
-                },
-                {
-                    "role": "user",
-                    "content": f"Summarize this review in 1-2 sentences:\n\n{text}"
-                }
-            ],
-            max_tokens=100,
-            temperature=0.3
+        # Truncate if too long (HF models have token limits)
+        text = review_text[:1024] if len(review_text) > 1024 else review_text
+        
+        # Get API key (optional but recommended for higher rate limits)
+        HF_TOKEN = os.getenv("HUGGINGFACE_API_KEY") or os.getenv("HF_TOKEN")
+        
+        # Initialize client - works without key but with lower rate limits
+        if HF_TOKEN:
+            client = InferenceClient(
+                provider="hf-inference",
+                api_key=HF_TOKEN,
+                timeout=15.0,  # 15 second timeout
+            )
+        else:
+            # Try without key (may have rate limits)
+            client = InferenceClient(
+                provider="hf-inference",
+                timeout=15.0,  # 15 second timeout
+            )
+        
+        print(f"Calling Hugging Face API for summary...")
+        result = client.summarization(
+            text,
+            model="facebook/bart-large-cnn",
         )
         
-        return response.choices[0].message.content.strip()
+        if result:
+            # Extract summary text from SummarizationOutput object
+            if hasattr(result, 'summary_text'):
+                summary = result.summary_text.strip()
+            elif hasattr(result, 'text'):
+                summary = result.text.strip()
+            elif isinstance(result, str):
+                summary = result.strip()
+            else:
+                # Try converting to string
+                summary = str(result).strip()
+            
+            if summary:
+                print(f"HF summary generated: {summary[:50]}...")
+                return summary
+        
+        return None
+    except ImportError:
+        print("huggingface_hub not installed, falling back to simple summary")
+        return None
+    except TimeoutError:
+        print("HF API call timed out, falling back to simple summary")
+        return None
     except Exception as e:
-        print(f"Error generating LLM summary: {e}")
+        # Check if it's a timeout/504 error
+        error_str = str(e)
+        if "504" in error_str or "timeout" in error_str.lower() or "Gateway Time-out" in error_str:
+            print("HF API timeout/504 error, falling back to simple summary")
+        else:
+            print(f"Error generating LLM summary: {e}")
         return None
 
 def generate_summary_simple(review_text, max_length=150):
@@ -83,22 +103,13 @@ def generate_summary_simple(review_text, max_length=150):
 
 def generate_summary(review_text, max_length=150):
     """
-    Generate summary using LLM if available, otherwise use simple extraction.
+    Generate summary using Hugging Face LLM if available, otherwise use simple extraction.
     """
-    # Try LLM first
-    if OPENAI_AVAILABLE and client:
-        print(f"Attempting LLM summary for text length: {len(review_text)}")
-        llm_summary = generate_summary_llm(review_text)
-        if llm_summary:
-            print(f"LLM summary generated: {llm_summary[:50]}...")
-            return llm_summary
-        else:
-            print("LLM summary failed, using simple summary")
-    else:
-        if not OPENAI_AVAILABLE:
-            print("OpenAI not available, using simple summary")
-        elif not client:
-            print("OpenAI client not initialized, using simple summary")
+    # Try LLM first (Hugging Face - free tier)
+    llm_summary = generate_summary_llm(review_text)
+    if llm_summary:
+        return llm_summary
     
     # Fallback to simple summary
+    print("Using simple summary fallback")
     return generate_summary_simple(review_text, max_length)

@@ -6,6 +6,9 @@ import os
 import requests
 import json
 from rapidfuzz import fuzz
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from review_summarizer import generate_summary
 
 load_dotenv()
 
@@ -82,12 +85,18 @@ def store_reviews_in_db(reviews, db):
     for review in reviews:
         shoe_model = review['shoe_model']
         shoe_brand = review['shoe_brand']
+        
+        # Generate summary when storing the review
+        post_text = review.get('post_text', '')
+        summary = generate_summary(post_text)
+        
         new_review = {
             "post_title": review['post_title'],
             "post_text": review['post_text'],
             "post_url": review['post_url'],
             "post_score": review['post_score'],
-            "post_created_utc": review['post_created_utc']
+            "post_created_utc": review['post_created_utc'],
+            "summary": summary  # Store the summary
         }
 
         # Check if this exact review already exists (by post_url)
