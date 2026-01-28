@@ -9,6 +9,7 @@ from rapidfuzz import fuzz
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from review_summarizer import generate_summary
+from sentiment_analyzer import extract_pros_cons
 
 load_dotenv()
 
@@ -86,9 +87,10 @@ def store_reviews_in_db(reviews, db):
         shoe_model = review['shoe_model']
         shoe_brand = review['shoe_brand']
         
-        # Generate summary when storing the review
+        # Generate summary and extract pros/cons when storing the review
         post_text = review.get('post_text', '')
         summary = generate_summary(post_text)
+        pros_cons = extract_pros_cons(post_text)
         
         new_review = {
             "post_title": review['post_title'],
@@ -96,7 +98,9 @@ def store_reviews_in_db(reviews, db):
             "post_url": review['post_url'],
             "post_score": review['post_score'],
             "post_created_utc": review['post_created_utc'],
-            "summary": summary  # Store the summary
+            "summary": summary,  # Store the summary
+            "pros": pros_cons.get("pros", []),  # Store pros
+            "cons": pros_cons.get("cons", [])   # Store cons
         }
 
         # Check if this exact review already exists (by post_url)

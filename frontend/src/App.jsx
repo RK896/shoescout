@@ -73,6 +73,31 @@ function ShoeCard({ shoe }) {
                   <span style={{ color: "#666" }}>
                     {review.summary || review.post_text.substring(0, 150) + "..."}
                   </span>
+                  
+                  {/* Pros section */}
+                  {review.pros && review.pros.length > 0 && (
+                    <div style={{ marginTop: "10px" }}>
+                      <strong style={{ color: "#4CAF50" }}>✓ Pros:</strong>
+                      <ul style={{ margin: "5px 0", paddingLeft: "20px", color: "#4CAF50" }}>
+                        {review.pros.map((pro, idx) => (
+                          <li key={idx} style={{ fontSize: "0.9em" }}>{pro}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  
+                  {/* Cons section */}
+                  {review.cons && review.cons.length > 0 && (
+                    <div style={{ marginTop: "10px" }}>
+                      <strong style={{ color: "#f44336" }}>✗ Cons:</strong>
+                      <ul style={{ margin: "5px 0", paddingLeft: "20px", color: "#f44336" }}>
+                        {review.cons.map((con, idx) => (
+                          <li key={idx} style={{ fontSize: "0.9em" }}>{con}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  
                   <br />
                   <a 
                     href={review.post_url} 

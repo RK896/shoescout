@@ -227,25 +227,42 @@ def get_reviews_for_shoe(shoe_model: str):
     )
     if shoe_review:
         reviews = shoe_review.get("reviews", [])
-        # Summaries are already stored in the database
-        # If a review doesn't have a summary (old data), generate it on-the-fly and save it
+        # Summaries and pros/cons are already stored in the database
+        # If a review doesn't have them (old data), generate on-the-fly and save
         from review_summarizer import generate_summary
-        needs_update = False
+        from sentiment_analyzer import extract_pros_cons
+        
         for review in reviews:
+            needs_update = False
+            update_fields = {}
+            
+            # Generate summary if missing
             if "summary" not in review or not review.get("summary"):
                 summary = generate_summary(review.get("post_text", ""))
-                if summary:  # Only update if we got a valid summary
+                if summary:
                     review["summary"] = summary
-                    # Update this review's summary in the database
-                    reviews_collection.update_one(
-                        {
-                            "shoe_model": shoe_model,
-                            "reviews.post_url": review.get("post_url")
-                        },
-                        {
-                            "$set": {"reviews.$.summary": summary}
-                        }
-                    )
+                    update_fields["reviews.$.summary"] = summary
+                    needs_update = True
+            
+            # Generate pros/cons if missing
+            if "pros" not in review or "cons" not in review:
+                pros_cons = extract_pros_cons(review.get("post_text", ""))
+                if pros_cons.get("pros") or pros_cons.get("cons"):
+                    review["pros"] = pros_cons.get("pros", [])
+                    review["cons"] = pros_cons.get("cons", [])
+                    update_fields["reviews.$.pros"] = pros_cons.get("pros", [])
+                    update_fields["reviews.$.cons"] = pros_cons.get("cons", [])
+                    needs_update = True
+            
+            # Update database if needed
+            if needs_update:
+                reviews_collection.update_one(
+                    {
+                        "shoe_model": shoe_model,
+                        "reviews.post_url": review.get("post_url")
+                    },
+                    {"$set": update_fields}
+                )
         return reviews
     return []
 
