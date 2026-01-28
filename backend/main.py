@@ -204,6 +204,13 @@ def add_shoes_to_db(shoes, db):
                 upsert=True
             )
 
+@app.delete("/reviews")
+def clear_all_reviews():
+    """Clear all reviews from the database"""
+    reviews_collection = db["reviews"]
+    result = reviews_collection.delete_many({})
+    return {"message": "All reviews cleared", "deleted_count": result.deleted_count}
+
 @app.post("/scrape_reviews")
 def scrape_reddit_reviews():
     from scraper.reddit_scraper import scrape_and_store_reviews

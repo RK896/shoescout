@@ -66,7 +66,7 @@ def match_posts_to_shoes(posts, shoes):
             brand_model_match = fuzz.partial_ratio(f"{shoe_brand} {shoe_model}", post_text)
             
             # Match if similarity is above 70% (adjust threshold as needed)
-            if model_match > 70 or brand_model_match > 70:
+            if model_match > 90 or brand_model_match > 90:
                 matched_reviews.append({
                     'shoe_model': shoe['model'],
                     'shoe_brand': shoe['brand'],
