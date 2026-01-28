@@ -214,7 +214,7 @@ def clear_all_reviews():
 @app.post("/scrape_reviews")
 def scrape_reddit_reviews():
     from scraper.reddit_scraper import scrape_and_store_reviews
-    stored = scrape_and_store_reviews(limit=10)
+    stored = scrape_and_store_reviews(limit=100, include_comments=True)
     return {"message": "reviews scraped and stored", "count": stored}
 
 @app.get("/reviews/{shoe_model}")
