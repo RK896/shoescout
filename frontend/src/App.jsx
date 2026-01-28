@@ -26,94 +26,134 @@ function ShoeCard({ shoe }) {
   }, [shoe.model]);
 
   return (
-    <div className="shoe-card-wrapper">
-      <div className="shoe-card">
-        <img src={shoe.image} alt={shoe.model} className="shoe-img" />
-        <h2>{shoe.model}</h2>
-        <p>
-          <strong className="brand-name">Brand:</strong> {shoe.brand}
-        </p>
-        <p>
-          <strong className="retailers">Retailers</strong>
-        </p>
-        <ul>
-          {shoe.retailers.map((r, i) => (
-            <li key={i}>
-              <strong>{r.retailer}</strong>: {r.price} -{" "}
-              <a href={r.link} target="_blank" className="buy-button">
-                Buy
-              </a>
-            </li>
-          ))}
-        </ul>
-        
-        {/* Review indicator and toggle button */}
-        {reviews.length > 0 && (
-          <button 
-            className="reviews-toggle-button"
-            onClick={() => setShowReviews(!showReviews)}
-          >
-            💬 {reviews.length} review{reviews.length !== 1 ? 's' : ''} - {showReviews ? 'Hide' : 'Show'} reviews
-          </button>
-        )}
-      </div>
-
-      {/* Reviews section - expands below card */}
-      {showReviews && reviews.length > 0 && (
-        <div className="reviews-section">
-          <strong className="retailers">What People Say</strong>
-          {loadingReviews ? (
-            <p>Loading reviews...</p>
-          ) : (
-            <ul className="reviews-list">
-              {reviews.slice(0, 3).map((review, i) => (
-                <li key={i} className="review-item">
-                  <strong>{review.post_title}</strong>
-                  <br />
-                  <span style={{ color: "#666" }}>
-                    {review.summary || review.post_text.substring(0, 150) + "..."}
-                  </span>
-                  
-                  {/* Pros section */}
-                  {review.pros && review.pros.length > 0 && (
-                    <div style={{ marginTop: "10px" }}>
-                      <strong style={{ color: "#4CAF50" }}>✓ Pros:</strong>
-                      <ul style={{ margin: "5px 0", paddingLeft: "20px", color: "#4CAF50" }}>
-                        {review.pros.map((pro, idx) => (
-                          <li key={idx} style={{ fontSize: "0.9em" }}>{pro}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  
-                  {/* Cons section */}
-                  {review.cons && review.cons.length > 0 && (
-                    <div style={{ marginTop: "10px" }}>
-                      <strong style={{ color: "#f44336" }}>✗ Cons:</strong>
-                      <ul style={{ margin: "5px 0", paddingLeft: "20px", color: "#f44336" }}>
-                        {review.cons.map((con, idx) => (
-                          <li key={idx} style={{ fontSize: "0.9em" }}>{con}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  
-                  <br />
-                  <a 
-                    href={review.post_url} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="review-link"
-                  >
-                    Read full review on Reddit →
-                  </a>
-                </li>
-              ))}
-            </ul>
+    <>
+      <div className="shoe-card-wrapper">
+        <div className="shoe-card">
+          <img src={shoe.image} alt={shoe.model} className="shoe-img" />
+          <h2>{shoe.model}</h2>
+          <p>
+            <strong className="brand-name">Brand:</strong> {shoe.brand}
+          </p>
+          <p>
+            <strong className="retailers">Retailers</strong>
+          </p>
+          <ul>
+            {shoe.retailers.map((r, i) => (
+              <li key={i}>
+                <strong>{r.retailer}</strong>: {r.price} -{" "}
+                <a href={r.link} target="_blank" className="buy-button">
+                  Buy
+                </a>
+              </li>
+            ))}
+          </ul>
+          
+          {reviews.length > 0 && (
+            <button 
+              className="reviews-toggle-button"
+              onClick={() => setShowReviews(true)}
+            >
+              💬 {reviews.length} review{reviews.length !== 1 ? 's' : ''}
+            </button>
           )}
         </div>
+      </div>
+
+      {/* Pop-out overlay: left = shoe card, right = reviews */}
+      {showReviews && reviews.length > 0 && (
+        <div 
+          className="reviews-popout-overlay" 
+          onClick={() => setShowReviews(false)}
+          role="button"
+          tabIndex={0}
+          aria-label="Close reviews"
+        >
+          <div 
+            className="reviews-popout-panel"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button 
+              className="reviews-popout-close"
+              onClick={() => setShowReviews(false)}
+              aria-label="Close"
+            >
+              ×
+            </button>
+            
+            <div className="reviews-popout-left">
+              <div className="shoe-card reviews-popout-card">
+                <img src={shoe.image} alt={shoe.model} className="shoe-img" />
+                <h2>{shoe.model}</h2>
+                <p>
+                  <strong className="brand-name">Brand:</strong> {shoe.brand}
+                </p>
+                <p>
+                  <strong className="retailers">Retailers</strong>
+                </p>
+                <ul>
+                  {shoe.retailers.map((r, i) => (
+                    <li key={i}>
+                      <strong>{r.retailer}</strong>: {r.price} -{" "}
+                      <a href={r.link} target="_blank" className="buy-button">
+                        Buy
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+            
+            <div className="reviews-popout-right">
+              <strong className="retailers">What People Say</strong>
+              {loadingReviews ? (
+                <p>Loading reviews...</p>
+              ) : (
+                <ul className="reviews-list">
+                  {reviews.slice(0, 5).map((review, i) => (
+                    <li key={i} className="review-item">
+                      <strong>{review.post_title}</strong>
+                      <br />
+                      <span style={{ color: "#666" }}>
+                        {review.summary || review.post_text.substring(0, 150) + "..."}
+                      </span>
+                      {review.pros && review.pros.length > 0 && (
+                        <div style={{ marginTop: "10px" }}>
+                          <strong style={{ color: "#4CAF50" }}>✓ Pros:</strong>
+                          <ul style={{ margin: "5px 0", paddingLeft: "20px", color: "#4CAF50" }}>
+                            {review.pros.map((pro, idx) => (
+                              <li key={idx} style={{ fontSize: "0.9em" }}>{pro}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {review.cons && review.cons.length > 0 && (
+                        <div style={{ marginTop: "10px" }}>
+                          <strong style={{ color: "#f44336" }}>✗ Cons:</strong>
+                          <ul style={{ margin: "5px 0", paddingLeft: "20px", color: "#f44336" }}>
+                            {review.cons.map((con, idx) => (
+                              <li key={idx} style={{ fontSize: "0.9em" }}>{con}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      <br />
+                      <a 
+                        href={review.post_url} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="review-link"
+                      >
+                        Read full review on Reddit →
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
       )}
-    </div>
+    </>
   );
 }
 
