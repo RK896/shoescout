@@ -76,25 +76,38 @@ def get_shoes():
                     shoe["embeddings"] = list(shoe["embeddings"])
         
         # Generate embeddings in batch (much faster than one-by-one)
-        # Only generate for first 20 shoes without embeddings to avoid blocking
+        # Include Reddit review data so semantic search matches "comfortable", "daily trainer", etc.
         if EMBEDDINGS_AVAILABLE:
             shoes_needing_embeddings = [s for s in shoes if s.get("embeddings") is None][:20]
             if shoes_needing_embeddings:
+                # Fetch review text per shoe model from reviews collection
+                reviews_collection = db["reviews"]
+                reviews_by_model = {}
+                for shoe in shoes_needing_embeddings:
+                    model_name = shoe.get("model")
+                    doc = reviews_collection.find_one({"shoe_model": model_name}, {"reviews": 1})
+                    if doc and doc.get("reviews"):
+                        parts = []
+                        for rev in doc["reviews"][:10]:  # up to 10 reviews
+                            if rev.get("summary"):
+                                parts.append(rev["summary"])
+                            for p in rev.get("pros", [])[:3]:
+                                parts.append(p)
+                            for c in rev.get("cons", [])[:3]:
+                                parts.append(c)
+                        if parts:
+                            reviews_by_model[model_name] = " ".join(parts)
                 try:
-                    # Batch process - much faster!
-                    embeddings = generate_embeddings_batch(shoes_needing_embeddings)
+                    embeddings = generate_embeddings_batch(shoes_needing_embeddings, reviews_by_model=reviews_by_model)
                     for shoe, embedding in zip(shoes_needing_embeddings, embeddings):
-                        # embeddings are already lists from generate_embeddings_batch
                         collection.update_one({"model": shoe["model"]}, {"$set": {"embeddings": embedding}})
-                        # Update in the returned list too
                         shoe["embeddings"] = embedding
                 except Exception as e:
                     print(f"Error generating embeddings batch: {e}")
-                    # Fallback to individual generation
                     for shoe in shoes_needing_embeddings:
                         try:
-                            embedding = generate_embeddings(shoe)
-                            # embedding is already a list from generate_embeddings
+                            review_text = reviews_by_model.get(shoe.get("model"), "")
+                            embedding = generate_embeddings(shoe, review_text=review_text)
                             collection.update_one({"model": shoe["model"]}, {"$set": {"embeddings": embedding}})
                             shoe["embeddings"] = embedding
                         except Exception as e2:

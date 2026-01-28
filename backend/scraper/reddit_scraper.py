@@ -221,6 +221,9 @@ def store_reviews_in_db(reviews, db):
             },
             upsert=True
         )
+        # Clear this shoe's embedding so it gets regenerated with new review content (semantic search)
+        shoes_collection = db["shoes"]
+        shoes_collection.update_one({"model": shoe_model}, {"$unset": {"embeddings": ""}})
         stored_count += 1
     
     return stored_count

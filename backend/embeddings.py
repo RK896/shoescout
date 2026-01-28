@@ -14,30 +14,47 @@ except (ImportError, Exception) as e:
     model = None
     EMBEDDINGS_AVAILABLE = False
 
-def generate_embeddings(shoe_dict):
-    if not EMBEDDINGS_AVAILABLE:
-        raise ImportError("sentence-transformers not available. Please upgrade the package.")
-    embedding = model.encode(create_shoe_text(shoe_dict))
-    # Convert numpy array to list for JSON serialization
-    return embedding.tolist() if hasattr(embedding, 'tolist') else list(embedding)
+# Max characters for embedding text (model has ~512 token limit, ~2000 chars safe)
+MAX_EMBEDDING_TEXT_LEN = 2000
 
-def generate_embeddings_batch(shoe_dicts):
-    """Generate embeddings for multiple shoes at once (much faster)"""
-    if not EMBEDDINGS_AVAILABLE:
-        raise ImportError("sentence-transformers not available. Please upgrade the package.")
-    texts = [create_shoe_text(shoe) for shoe in shoe_dicts]
-    embeddings = model.encode(texts, show_progress_bar=False)
-    # Convert 2D numpy array to list of lists for JSON serialization
-    # embeddings is shape (n_shoes, embedding_dim)
-    return [emb.tolist() for emb in embeddings]
-
-
-def create_shoe_text(shoe_dict):
-    text = f"{shoe_dict['brand']} {shoe_dict['model']} running shoe"
+def create_shoe_text(shoe_dict, review_text=None):
+    """Create text for embedding: base shoe info + optional Reddit review content."""
+    text = f"{shoe_dict.get('brand', '')} {shoe_dict.get('model', '')} running shoe"
     retailers = shoe_dict.get('retailers', [])
     if retailers:
         retailer_info = []
         for r in retailers:
             retailer_info.append(f"{r['retailer']} for {r['price']}")
         text += " available at " + ", ".join(retailer_info)
+    
+    # Include Reddit review data so semantic search matches "comfortable", "daily trainer", etc.
+    if review_text and review_text.strip():
+        text += " " + review_text.strip()
+    
+    # Truncate to avoid exceeding model token limit
+    if len(text) > MAX_EMBEDDING_TEXT_LEN:
+        text = text[:MAX_EMBEDDING_TEXT_LEN - 3] + "..."
     return text
+
+def generate_embeddings(shoe_dict, review_text=None):
+    if not EMBEDDINGS_AVAILABLE:
+        raise ImportError("sentence-transformers not available. Please upgrade the package.")
+    embedding = model.encode(create_shoe_text(shoe_dict, review_text=review_text))
+    # Convert numpy array to list for JSON serialization
+    return embedding.tolist() if hasattr(embedding, 'tolist') else list(embedding)
+
+def generate_embeddings_batch(shoe_dicts, reviews_by_model=None):
+    """Generate embeddings for multiple shoes at once (much faster).
+    reviews_by_model: optional dict mapping shoe model -> string of review content to include.
+    """
+    if not EMBEDDINGS_AVAILABLE:
+        raise ImportError("sentence-transformers not available. Please upgrade the package.")
+    if reviews_by_model is None:
+        reviews_by_model = {}
+    texts = [
+        create_shoe_text(shoe, review_text=reviews_by_model.get(shoe.get("model"), ""))
+        for shoe in shoe_dicts
+    ]
+    embeddings = model.encode(texts, show_progress_bar=False)
+    # Convert 2D numpy array to list of lists for JSON serialization
+    return [emb.tolist() for emb in embeddings]
