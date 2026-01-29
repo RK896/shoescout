@@ -129,10 +129,12 @@ def search_shoes(q: str=Query(...)):
             # Use Hugging Face Inference API when local model disabled (e.g. Render 512MB)
             query_embedding_list = encode_query_via_api(q)
             if query_embedding_list is None:
-                raise HTTPException(
-                    status_code=503,
-                    detail="Semantic search unavailable. Set HUGGINGFACE_API_KEY for remote search, or run with local embeddings."
-                )
+                # Fallback: return first 10 shoes so UI doesn't break (e.g. missing HF key)
+                print("Semantic search unavailable (remote encode failed). Returning fallback results.")
+                fallback = list(collection.find({}, {"_id": 0}).limit(10))
+                for s in fallback:
+                    s.pop("embeddings", None)
+                return fallback
             query_embedding = np.array(query_embedding_list)
         shoes = list(collection.find({"embeddings": {"$exists": True}}, {"_id": 0}))
 
@@ -245,9 +247,8 @@ def scrape_reddit_reviews():
     stored = scrape_and_store_reviews(limit=100, include_comments=True)
     return {"message": "reviews scraped and stored", "count": stored}
 
-@app.get("/reviews/{shoe_model}")
-def get_reviews_for_shoe(shoe_model: str):
-    """Get all Reddit reviews for a specific shoe model with summaries"""
+def _get_reviews_for_shoe_impl(shoe_model: str):
+    """Shared impl for path and query param."""
     reviews_collection = db["reviews"]
     shoe_review = reviews_collection.find_one(
         {"shoe_model": shoe_model},
@@ -294,9 +295,16 @@ def get_reviews_for_shoe(shoe_model: str):
         return reviews
     return []
 
+@app.get("/reviews/{shoe_model:path}")
+def get_reviews_for_shoe_path(shoe_model: str):
+    """Get reviews by path (use ?shoe_model= for names with slashes, e.g. S/Lab)."""
+    return _get_reviews_for_shoe_impl(shoe_model)
+
 @app.get("/reviews")
-def get_all_reviews():
-    """Get all reviews grouped by shoe"""
+def get_reviews(shoe_model: str = None):
+    """Get all reviews grouped by shoe, or reviews for one shoe if shoe_model query provided."""
+    if shoe_model is not None:
+        return _get_reviews_for_shoe_impl(shoe_model)
     reviews_collection = db["reviews"]
     all_reviews = list(reviews_collection.find({}, {"_id": 0}))
     return all_reviews

@@ -44,6 +44,14 @@
 - **DISABLE_EMBEDDINGS** — Set to `1` to avoid loading Sentence Transformers (prevents out-of-memory). The app then uses **Hugging Face Inference API** to encode search queries only; shoe embeddings must already be in MongoDB (pre-compute locally or in CI).
 - **HUGGINGFACE_API_KEY** (or **HF_TOKEN**) — **Required for semantic search** when `DISABLE_EMBEDDINGS=1` (used for query encoding). Also used for review summarization. Without it, search returns 503 when embeddings are disabled.
 
+**Build command (avoid 2.5GB+ PyTorch/CUDA download):**  
+Use the lean requirements file so Render doesn’t install `sentence-transformers` (and thus PyTorch/CUDA). In Render → Service → Build & Deploy → Build Command, set:
+- If **Root Directory** is `backend`:  
+  `pip install -r requirements-render.txt`
+- If root is the repo:  
+  `cd backend && pip install -r requirements-render.txt`  
+Then keep your usual Start Command (e.g. `uvicorn main:app --host 0.0.0.0`).
+
 ### GitHub
 
 - **Secrets used by workflows**

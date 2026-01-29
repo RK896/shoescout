@@ -11,9 +11,9 @@ function ShoeCard({ shoe }) {
   const [showReviews, setShowReviews] = useState(false);
 
   useEffect(() => {
-    // Fetch reviews for this shoe
+    // Fetch reviews for this shoe (query param avoids 404 when model has "/" e.g. S/Lab)
     setLoadingReviews(true);
-    fetch(`${API_BASE_URL}/reviews/${encodeURIComponent(shoe.model)}`)
+    fetch(`${API_BASE_URL}/reviews?shoe_model=${encodeURIComponent(shoe.model)}`)
       .then((res) => res.json())
       .then((data) => {
         setReviews(Array.isArray(data) ? data : []);
