@@ -1,12 +1,13 @@
-name: Scraping Automator
+name: Reddit review scraper (weekly)
 
 on:
   schedule:
-    - cron: '0 */6 * * *'
+    # Run once a week: Sunday 00:00 UTC
+    - cron: '0 0 * * 0'
   workflow_dispatch:
 
 jobs:
-  scrape:
+  reddit:
     runs-on: ubuntu-latest
 
     steps:
@@ -18,7 +19,7 @@ jobs:
         with:
           python-version: '3.x'
 
-      - name: install dependencies
+      - name: Install dependencies
         run: |
           python3 -m pip install --upgrade pip
           pip install -r backend/requirements.txt
@@ -30,10 +31,7 @@ jobs:
             echo "HUGGINGFACE_API_KEY=${{ secrets.HUGGINGFACE_API_KEY }}" >> $GITHUB_ENV
           fi
 
-      - name: Run retailer scraper
+      - name: Run Reddit scraper
         working-directory: ./backend
         run: |
-          python3 scrape_runner.py
-
-      
-      
+          python3 reddit_runner.py
