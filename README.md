@@ -1,9 +1,6 @@
 # 👟 ShoeScout
 
-**ShoeScout** is a web application that helps runners and sneaker enthusiasts
-find the best deals on running shoes by aggregating prices and reviews from multiple sources.
-With frequent scraping and a clean interface,
-users can compare shoes across retailers and make informed purchasing decisions.
+**ShoeScout** is a full-stack running shoe deal aggregator that helps users find the best prices and community reviews. It combines retailer scraping, Reddit review insights, and semantic search so users can compare shoes and discover options by intent (e.g. "comfortable daily trainer").
 
 ## 📽️ Demo
 
@@ -11,25 +8,72 @@ users can compare shoes across retailers and make informed purchasing decisions.
 
 ## Features
 
-- **Search & Compare**: Find running shoes by brand or model and compare prices from different retailers.
-- **Up-to-date Price**: Scrapes data every 6 hours regularly to ensure current pricing.
-- Currently supports deals from **New Balance, Running Warehouse,** and **Nike**
+- **Search & Compare** — Find shoes by brand or model and compare prices across retailers (New Balance, Running Warehouse, Nike).
+- **Semantic Search** — Search by intent using SBERT (Sentence Transformers). Embeddings include Reddit review text for better relevance (e.g. "lightweight", "daily trainer").
+- **Reddit Review Insights** — Ingest posts and comments from r/RunningShoeGeeks; fuzzy-match to shoes; show summaries, pros/cons, and links to Reddit.
+- **Up-to-date Data** — Retailer scraping and Reddit ingestion run on a schedule (e.g. GitHub Actions) so prices and reviews stay current.
 
 ## 🛠 Tech Stack
 
-![Python](https://img.shields.io/badge/Python-3.11-blue?logo=python&logoColor=white): Core programming language  
+| Layer        | Tech |
+|-------------|------|
+| **Backend** | Python, FastAPI, MongoDB |
+| **Frontend**| React, Vite |
+| **Scraping**| Selenium (retailers), Requests (Reddit JSON API) |
+| **ML / NLP**| Sentence Transformers (SBERT), Hugging Face Inference (summarization), keyword-based pros/cons |
+| **Deploy**  | Render (backend), GitHub Pages (frontend), GitHub Actions (scraping, deploy, ping) |
 
-![FastAPI](https://img.shields.io/badge/FastAPI-0.100-009688?logo=fastapi): Backend framework for APIs and database interaction  
+## Environment Variables
 
-![MongoDB](https://img.shields.io/badge/MongoDB-6.0-green?logo=mongodb): Stores shoe data (images, names, prices, links)  
+### Local / Backend (`.env` in `backend/`)
 
-![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black): Frontend framework for the UI  
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `MONGO_URI` | Yes | MongoDB connection string (e.g. Atlas). |
+| `HUGGINGFACE_API_KEY` or `HF_TOKEN` | No | Hugging Face token for summarization (higher rate limits). Without it, summarization falls back to a simple extractive method. |
 
-![Selenium](https://img.shields.io/badge/Selenium-43B02A?logo=selenium): Web scraping to collect shoe data from retailer websites  
+### Frontend (production build)
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `VITE_API_URL` | Yes (prod) | Backend API URL (e.g. `https://shoescout.onrender.com`). Set when building for production so the frontend calls the right API. |
+
+### Render (backend)
+
+- **MONGO_URI** — Required. Set in Render dashboard → Service → Environment.
+- **HUGGINGFACE_API_KEY** (or **HF_TOKEN**) — Optional. Set if you want LLM summarization in production.
+
+### GitHub
+
+- **Secrets used by workflows**
+  - **MONGO_URI** — Used by the scraping workflow to write to MongoDB.
+  - **GH_TOKEN** — Used by the deploy workflow to push to `gh-pages`.
+  - **VITE_API_URL** — Set when building the frontend (e.g. `https://shoescout.onrender.com`) so the deployed site calls your Render backend. Add as a repo secret and use it in the deploy workflow build step.
+- **Optional:** **HUGGINGFACE_API_KEY** — If you add Reddit scraping to the automation, set this so summaries use the Hugging Face API in CI.
+
+## Setup (local)
+
+1. **Backend**
+   ```bash
+   cd backend
+   pip install -r requirements.txt
+   cp .env.example .env   # add MONGO_URI (and optional HF token)
+   uvicorn main:app --reload
+   ```
+2. **Frontend**
+   ```bash
+   cd frontend
+   npm install
+   npm run dev
+   ```
+   Default API URL is `http://localhost:8000`. Override with `VITE_API_URL` if needed.
+
+3. **Scraping (optional)**  
+   Retailer scrape: `python backend/scrape_runner.py`  
+   Reddit reviews: `POST /scrape_reviews` on the running API, or call `scrape_and_store_reviews()` from `scraper.reddit_scraper`.
 
 ## To Do
 
-- Add more retailer scrapers ex: Adidas, New Balance, Zappos, etc.
-- Add sorting and filtering options
-
-
+- Add more retailer scrapers (e.g. Adidas, Zappos).
+- Add sorting and filtering (e.g. by price, brand).
+- Optional: Docker for one-command local run.
