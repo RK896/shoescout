@@ -9,17 +9,19 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 try:
-    from embeddings import generate_embeddings, create_shoe_text, model, EMBEDDINGS_AVAILABLE, generate_embeddings_batch
+    from embeddings import generate_embeddings, create_shoe_text, model, EMBEDDINGS_AVAILABLE, generate_embeddings_batch, encode_query_via_api
 except Exception as e:
     print(f"Warning: Could not import embeddings module: {e}")
     EMBEDDINGS_AVAILABLE = False
     model = None
-    def generate_embeddings(shoe_dict):
+    def generate_embeddings(shoe_dict, review_text=None):
         raise ImportError("Embeddings not available")
-    def generate_embeddings_batch(shoe_dicts):
+    def generate_embeddings_batch(shoe_dicts, reviews_by_model=None):
         raise ImportError("Embeddings not available")
-    def create_shoe_text(shoe_dict):
+    def create_shoe_text(shoe_dict, review_text=None):
         return f"{shoe_dict.get('brand', '')} {shoe_dict.get('model', '')}"
+    def encode_query_via_api(query):
+        return None
 import numpy as np
 
 app = FastAPI()
@@ -120,10 +122,18 @@ def get_shoes():
 
 @app.get("/search")
 def search_shoes(q: str=Query(...)):
-    if not EMBEDDINGS_AVAILABLE:
-        raise HTTPException(status_code=503, detail="Semantic search not available. Please upgrade sentence-transformers package.")
     try:
-        query_embedding = model.encode(q)
+        if EMBEDDINGS_AVAILABLE:
+            query_embedding = np.array(model.encode(q))
+        else:
+            # Use Hugging Face Inference API when local model disabled (e.g. Render 512MB)
+            query_embedding_list = encode_query_via_api(q)
+            if query_embedding_list is None:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Semantic search unavailable. Set HUGGINGFACE_API_KEY for remote search, or run with local embeddings."
+                )
+            query_embedding = np.array(query_embedding_list)
         shoes = list(collection.find({"embeddings": {"$exists": True}}, {"_id": 0}))
 
         if not shoes:
@@ -142,7 +152,12 @@ def search_shoes(q: str=Query(...)):
                 continue
         
         results.sort(key=lambda x: x[0], reverse=True)
-        return [shoe for _,shoe in results[:10]] #return top 10 matches
+        top = results[:10]
+        for _, shoe in top:
+            shoe.pop("embeddings", None)
+        return [shoe for _, shoe in top]
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Search error: {e}")
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")

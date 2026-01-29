@@ -38,10 +38,11 @@
 |----------|----------|-------------|
 | `VITE_API_URL` | Yes (prod) | Backend API URL (e.g. `https://shoescout.onrender.com`). Set when building for production so the frontend calls the right API. |
 
-### Render (backend)
+### Render (backend, 512MB free tier)
 
-- **MONGO_URI** — Required. Set in Render dashboard → Service → Environment.
-- **HUGGINGFACE_API_KEY** (or **HF_TOKEN**) — Optional. Set if you want LLM summarization in production.
+- **MONGO_URI** — Required.
+- **DISABLE_EMBEDDINGS** — Set to `1` to avoid loading Sentence Transformers (prevents out-of-memory). The app then uses **Hugging Face Inference API** to encode search queries only; shoe embeddings must already be in MongoDB (pre-compute locally or in CI).
+- **HUGGINGFACE_API_KEY** (or **HF_TOKEN**) — **Required for semantic search** when `DISABLE_EMBEDDINGS=1` (used for query encoding). Also used for review summarization. Without it, search returns 503 when embeddings are disabled.
 
 ### GitHub
 
@@ -71,6 +72,9 @@
 3. **Scraping (optional)**  
    Retailer scrape: `python backend/scrape_runner.py`  
    Reddit reviews: `POST /scrape_reviews` on the running API, or call `scrape_and_store_reviews()` from `scraper.reddit_scraper`.
+
+4. **Pre-computing embeddings (for Render 512MB)**  
+   When `DISABLE_EMBEDDINGS=1`, the backend does not load Sentence Transformers and does not generate shoe embeddings. To have semantic search work on Render, run the app **locally once** (with `DISABLE_EMBEDDINGS` unset) and open `GET /shoes` so embeddings are generated and stored in MongoDB. Or run a script that connects to the same MongoDB, loads the model, and writes embeddings for all shoes. After that, Render can serve search by encoding only the user query via the Hugging Face API.
 
 ## To Do
 
