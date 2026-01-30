@@ -8,6 +8,10 @@ on:
 jobs:
   scrape:
     runs-on: ubuntu-latest
+    env:
+      # Set HF token from the start so huggingface_hub uses it during pip install and model load
+      HF_TOKEN: ${{ secrets.HUGGINGFACE_API_KEY }}
+      HUGGINGFACE_API_KEY: ${{ secrets.HUGGINGFACE_API_KEY }}
 
     steps:
       - name: Checkout code
@@ -26,10 +30,6 @@ jobs:
       - name: Set environment variables
         run: |
           echo "MONGO_URI=${{ secrets.MONGO_URI }}" >> $GITHUB_ENV
-          if [ -n "${{ secrets.HUGGINGFACE_API_KEY }}" ]; then
-            echo "HUGGINGFACE_API_KEY=${{ secrets.HUGGINGFACE_API_KEY }}" >> $GITHUB_ENV
-            echo "HF_TOKEN=${{ secrets.HUGGINGFACE_API_KEY }}" >> $GITHUB_ENV
-          fi
 
       - name: Run retailer scraper
         working-directory: ./backend
