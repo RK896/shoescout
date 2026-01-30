@@ -166,10 +166,21 @@ def search_shoes(q: str=Query(...)):
 
 @app.post("/scrape")
 def scrape_and_store():
-    shoes = runningwarehouse.scrape_runningwarehouse()
-    shoes.extend(nike.scrape_nike())
-    shoes.extend(newbalance.scrape_newbalance())
-    add_shoes_to_db(shoes, db)  
+    shoes = []
+    # Run each scraper separately so one timeout/failure doesn't fail the whole job (e.g. Nike in CI)
+    try:
+        shoes.extend(runningwarehouse.scrape_runningwarehouse())
+    except Exception as e:
+        print(f"Running Warehouse scraper failed: {e}")
+    try:
+        shoes.extend(nike.scrape_nike())
+    except Exception as e:
+        print(f"Nike scraper failed: {e}")
+    try:
+        shoes.extend(newbalance.scrape_newbalance())
+    except Exception as e:
+        print(f"New Balance scraper failed: {e}")
+    add_shoes_to_db(shoes, db)
     return {"message": "shoes scraped and stored", "count": len(shoes)}
 
 
