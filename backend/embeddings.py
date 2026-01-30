@@ -84,17 +84,20 @@ def encode_query_via_api(query: str):
         from huggingface_hub import InferenceClient  # type: ignore
         token = os.getenv("HUGGINGFACE_API_KEY") or os.getenv("HF_TOKEN")
         if not token:
+            print("Remote query encoding: HUGGINGFACE_API_KEY (or HF_TOKEN) not set. Set it on Render for semantic search.")
             return None
         client = InferenceClient(provider="hf-inference", api_key=token, timeout=15.0)
-        # Truncate to avoid token limit
         text = query.strip()[:512]
         result = client.feature_extraction(text, model=EMBEDDING_MODEL_ID)
         if result is None:
+            print("Remote query encoding: HF API returned None.")
             return None
         # HF returns list of lists for feature_extraction (one embedding = result[0])
         if isinstance(result, list) and result:
             emb = result[0] if isinstance(result[0], list) else result
-            return list(emb) if isinstance(emb, (list, tuple)) else None
+            if isinstance(emb, (list, tuple)) and len(emb) > 0:
+                return list(emb)
+        print(f"Remote query encoding: unexpected HF response type: {type(result)}")
         return None
     except Exception as e:
         print(f"Remote query encoding failed: {e}")
