@@ -4,6 +4,7 @@ from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from scraper import nike, runningwarehouse, newbalance
 import os
+import re
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -63,6 +64,31 @@ def health_check():
 db = get_db()
 collection = db["shoes"]
 
+
+def _shoes_for_response(shoes_list):
+    """Return shoes with embeddings stripped for JSON response."""
+    for s in shoes_list:
+        s.pop("embeddings", None)
+    return shoes_list
+
+
+def _text_search_shoes(query: str, limit: int = 100):
+    """MongoDB text/regex search on brand, model, retailers when semantic search unavailable."""
+    if not query or not query.strip():
+        return list(collection.find({}, {"_id": 0}))
+    escaped = re.escape(query.strip())
+    if not escaped:
+        return list(collection.find({}, {"_id": 0}))
+    filter_ = {
+        "$or": [
+            {"model": {"$regex": escaped, "$options": "i"}},
+            {"brand": {"$regex": escaped, "$options": "i"}},
+            {"retailers.retailer": {"$regex": escaped, "$options": "i"}},
+        ]
+    }
+    return list(collection.find(filter_, {"_id": 0}).limit(limit))
+
+
 @app.get("/shoes")
 def get_shoes():
     try:
@@ -121,23 +147,25 @@ def get_shoes():
         raise HTTPException(status_code=500, detail=f"Failed to fetch shoes: {str(e)}")
 
 @app.get("/search")
-def search_shoes(q: str=Query(...)):
+def search_shoes(q: str = Query("", description="Search query; empty returns all shoes.")):
     try:
+        # Empty or whitespace: return all shoes (so clearing the search bar resets the list)
+        if not q or not q.strip():
+            all_shoes = list(collection.find({}, {"_id": 0}))
+            return _shoes_for_response(all_shoes)
+
         if EMBEDDINGS_AVAILABLE:
             query_embedding = np.array(model.encode(q))
         else:
             # Use Hugging Face Inference API when local model disabled (e.g. Render 512MB)
             query_embedding_list = encode_query_via_api(q)
             if query_embedding_list is None:
-                # Fallback: return first 10 shoes so UI doesn't break (e.g. missing HF key)
-                print("Semantic search unavailable (remote encode failed). Returning fallback results.")
-                fallback = list(collection.find({}, {"_id": 0}).limit(10))
-                for s in fallback:
-                    s.pop("embeddings", None)
-                return fallback
+                # Text search fallback so normal search works when semantic unavailable
+                print("Semantic search unavailable. Using text search on brand/model/retailer.")
+                return _shoes_for_response(_text_search_shoes(q.strip()))
             query_embedding = np.array(query_embedding_list)
-        shoes = list(collection.find({"embeddings": {"$exists": True}}, {"_id": 0}))
 
+        shoes = list(collection.find({"embeddings": {"$exists": True}}, {"_id": 0}))
         if not shoes:
             return []
 
@@ -152,12 +180,10 @@ def search_shoes(q: str=Query(...)):
             except Exception as e:
                 print(f"Error processing shoe {shoe.get('model', 'unknown')}: {e}")
                 continue
-        
+
         results.sort(key=lambda x: x[0], reverse=True)
         top = results[:10]
-        for _, shoe in top:
-            shoe.pop("embeddings", None)
-        return [shoe for _, shoe in top]
+        return _shoes_for_response([shoe for _, shoe in top])
     except HTTPException:
         raise
     except Exception as e:

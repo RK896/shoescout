@@ -182,10 +182,12 @@ function App() {
       });
   }, []);
 
-  // Semantic search when user types
+  // Search when user types: empty = all shoes, non-empty = search (semantic or text fallback)
   useEffect(() => {
     if (searchTerm.trim() === "") {
-      // If search is empty, fetch all shoes
+      // Clear search: reset to full list so UI doesn't stay on "those 10"
+      setLoading(true);
+      setError(null);
       fetch(`${API_BASE_URL}/shoes`)
         .then((res) => {
           if (!res.ok) {
@@ -194,19 +196,20 @@ function App() {
           return res.json();
         })
         .then((data) => {
-          setShoes(data);
+          setShoes(Array.isArray(data) ? data : []);
+          setLoading(false);
           setError(null);
         })
         .catch((err) => {
           console.error("Failed to fetch shoes:", err);
           setError("Failed to load shoes.");
+          setLoading(false);
         });
       return;
     }
 
     setLoading(true);
     setError(null);
-    // Call semantic search endpoint
     fetch(`${API_BASE_URL}/search?q=${encodeURIComponent(searchTerm)}`)
       .then((res) => {
         if (!res.ok) {
