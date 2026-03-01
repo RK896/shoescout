@@ -10,8 +10,9 @@ jobs:
   reddit:
     runs-on: ubuntu-latest
     env:
-      HF_TOKEN: ${{ secrets.HUGGINGFACE_API_KEY }}
-      HUGGINGFACE_API_KEY: ${{ secrets.HUGGINGFACE_API_KEY }}
+      MONGO_URI: ${{ secrets.MONGO_URI }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
 
     steps:
       - name: Checkout code
@@ -27,11 +28,7 @@ jobs:
           python3 -m pip install --upgrade pip
           pip install -r backend/requirements.txt
 
-      - name: Set environment variables
-        run: |
-          echo "MONGO_URI=${{ secrets.MONGO_URI }}" >> $GITHUB_ENV
-
       - name: Run Reddit scraper
         working-directory: ./backend
         run: |
-          python3 reddit_runner.py
+          python3 scraper/reddit_scraper.py

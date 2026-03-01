@@ -4,6 +4,18 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 
+# Map first-word of shoe name to correct brand name for multi-word brands
+_BRAND_MAP = {
+    "new": "New Balance",
+    "on": "On Running",
+    "la": "La Sportiva",
+    "k-swiss": "K-Swiss",
+}
+
+def _extract_brand(name: str) -> str:
+    first = name.split()[0].lower() if name.split() else ""
+    return _BRAND_MAP.get(first, name.split()[0] if name.split() else "Unknown")
+
 
 def scrape_runningwarehouse():
     url = "https://www.runningwarehouse.com/Mens_Road_Running_Shoes/catpage-MBESTUSE.html"
@@ -52,7 +64,7 @@ def scrape_runningwarehouse():
                 price = raw_price
 
             shoes.append({
-                "brand": name.split()[0],
+                "brand": _extract_brand(name),
                 "model": name,
                 "price": price,
                 "image": img_url,

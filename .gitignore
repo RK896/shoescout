@@ -19,7 +19,11 @@ dist-ssr
 .vscode/*
 !.vscode/extensions.json
 .idea
-.en
+.env
+.env.*
+.claude/
+__pycache__/
+*.pyc
 .DS_Store
 *.suo
 *.ntvs*

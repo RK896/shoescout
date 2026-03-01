@@ -1,104 +1,124 @@
+"""
+Embedding generation for semantic shoe search via Cohere API.
+
+Model: embed-english-light-v3.0 (384 dims, fast, free tier available)
+- search_document input_type for indexing shoes
+- search_query input_type for user search queries
+
+Fallback: MongoDB text/regex search (no embeddings needed).
+"""
 import os
 from dotenv import load_dotenv
 load_dotenv()
 
-# Skip loading the model when DISABLE_EMBEDDINGS=1 (e.g. Render 512MB to avoid OOM).
-# Search still works by encoding the query via Hugging Face Inference API (remote).
-DISABLE_EMBEDDINGS = os.getenv("DISABLE_EMBEDDINGS", "").strip().lower() in ("1", "true", "yes")
-
-# Same model ID for local and HF API so embeddings are compatible (384 dims).
-EMBEDDING_MODEL_ID = "sentence-transformers/all-MiniLM-L6-v2"
-
-model = None
-EMBEDDINGS_AVAILABLE = False
-
-if not DISABLE_EMBEDDINGS:
-    try:
-        from sentence_transformers import SentenceTransformer
-        try:
-            model = SentenceTransformer(EMBEDDING_MODEL_ID)
-            EMBEDDINGS_AVAILABLE = True
-        except Exception as e:
-            print(f"Warning: Failed to initialize sentence-transformers model: {e}")
-            model = None
-    except (ImportError, Exception) as e:
-        print(f"Warning: sentence-transformers not available: {e}")
-        model = None
-else:
-    print("Embeddings: model disabled (DISABLE_EMBEDDINGS=1). Search will use Hugging Face Inference API for queries.")
-
-# Max characters for embedding text (model has ~512 token limit, ~2000 chars safe)
+COHERE_EMBEDDING_MODEL = "embed-english-light-v3.0"
+EMBEDDINGS_AVAILABLE = False  # set to True once Cohere client confirmed at startup
 MAX_EMBEDDING_TEXT_LEN = 2000
 
+_cohere_client = None
+
+
+def _init_cohere():
+    global _cohere_client, EMBEDDINGS_AVAILABLE
+    try:
+        import cohere
+        api_key = os.getenv("COHERE_API_KEY")
+        if not api_key:
+            print("Embeddings: COHERE_API_KEY not set — semantic search will use text fallback.")
+            return
+        _cohere_client = cohere.ClientV2(api_key=api_key)
+        EMBEDDINGS_AVAILABLE = True
+        print("Embeddings: Cohere client ready.")
+    except ImportError:
+        print("Embeddings: cohere package not installed. Run: pip install cohere")
+    except Exception as e:
+        print(f"Embeddings: Cohere init failed: {e}")
+
+
+_init_cohere()
+
+
+# ---------------------------------------------------------------------------
+# Text preparation
+# ---------------------------------------------------------------------------
+
 def create_shoe_text(shoe_dict, review_text=None):
-    """Create text for embedding: base shoe info + optional Reddit review content."""
+    """Build the text blob to embed for a shoe."""
     text = f"{shoe_dict.get('brand', '')} {shoe_dict.get('model', '')} running shoe"
     retailers = shoe_dict.get('retailers', [])
     if retailers:
-        retailer_info = []
-        for r in retailers:
-            retailer_info.append(f"{r['retailer']} for {r['price']}")
+        retailer_info = [f"{r['retailer']} for {r['price']}" for r in retailers]
         text += " available at " + ", ".join(retailer_info)
-    
-    # Include Reddit review data so semantic search matches "comfortable", "daily trainer", etc.
     if review_text and review_text.strip():
         text += " " + review_text.strip()
-    
-    # Truncate to avoid exceeding model token limit
     if len(text) > MAX_EMBEDDING_TEXT_LEN:
         text = text[:MAX_EMBEDDING_TEXT_LEN - 3] + "..."
     return text
 
-def generate_embeddings(shoe_dict, review_text=None):
-    if not EMBEDDINGS_AVAILABLE:
-        raise ImportError("sentence-transformers not available. Please upgrade the package.")
-    embedding = model.encode(create_shoe_text(shoe_dict, review_text=review_text))
-    # Convert numpy array to list for JSON serialization
-    return embedding.tolist() if hasattr(embedding, 'tolist') else list(embedding)
 
-def generate_embeddings_batch(shoe_dicts, reviews_by_model=None):
-    """Generate embeddings for multiple shoes at once (much faster).
-    reviews_by_model: optional dict mapping shoe model -> string of review content to include.
-    """
-    if not EMBEDDINGS_AVAILABLE:
-        raise ImportError("sentence-transformers not available. Please upgrade the package.")
-    if reviews_by_model is None:
-        reviews_by_model = {}
-    texts = [
-        create_shoe_text(shoe, review_text=reviews_by_model.get(shoe.get("model"), ""))
-        for shoe in shoe_dicts
-    ]
-    embeddings = model.encode(texts, show_progress_bar=False)
-    # Convert 2D numpy array to list of lists for JSON serialization
-    return [emb.tolist() for emb in embeddings]
-
+# ---------------------------------------------------------------------------
+# Cohere API
+# ---------------------------------------------------------------------------
 
 def encode_query_via_api(query: str):
-    """Encode a search query using Hugging Face Inference API (no local model).
-    Use when DISABLE_EMBEDDINGS=1 on Render so semantic search still works.
-    Returns list of floats (384 dims) or None on failure.
+    """
+    Encode a search query for semantic search.
+    Returns list[float] (384 dims) or None on failure.
     """
     if not query or not query.strip():
         return None
+    if not _cohere_client:
+        return None
     try:
-        from huggingface_hub import InferenceClient  # type: ignore
-        token = os.getenv("HUGGINGFACE_API_KEY") or os.getenv("HF_TOKEN")
-        if not token:
-            print("Remote query encoding: HUGGINGFACE_API_KEY (or HF_TOKEN) not set. Set it on Render for semantic search.")
-            return None
-        client = InferenceClient(provider="hf-inference", api_key=token, timeout=15.0)
-        text = query.strip()[:512]
-        result = client.feature_extraction(text, model=EMBEDDING_MODEL_ID)
-        if result is None:
-            print("Remote query encoding: HF API returned None.")
-            return None
-        # HF returns list of lists for feature_extraction (one embedding = result[0])
-        if isinstance(result, list) and result:
-            emb = result[0] if isinstance(result[0], list) else result
-            if isinstance(emb, (list, tuple)) and len(emb) > 0:
-                return list(emb)
-        print(f"Remote query encoding: unexpected HF response type: {type(result)}")
-        return None
+        response = _cohere_client.embed(
+            texts=[query.strip()[:512]],
+            model=COHERE_EMBEDDING_MODEL,
+            input_type="search_query",
+            embedding_types=["float"],
+        )
+        return list(response.embeddings.float_[0])
     except Exception as e:
-        print(f"Remote query encoding failed: {e}")
+        print(f"Cohere query encoding failed: {e}")
         return None
+
+
+def encode_batch_via_api(texts: list, input_type: str = "search_document"):
+    """
+    Encode a batch of texts (shoe documents).
+    Returns list[list[float]] or None on failure.
+    Automatically batches in groups of 96 (Cohere max).
+    """
+    if not texts:
+        return []
+    if not _cohere_client:
+        return None
+    try:
+        all_embeddings = []
+        for i in range(0, len(texts), 96):
+            batch = [t[:MAX_EMBEDDING_TEXT_LEN] for t in texts[i:i + 96]]
+            response = _cohere_client.embed(
+                texts=batch,
+                model=COHERE_EMBEDDING_MODEL,
+                input_type=input_type,
+                embedding_types=["float"],
+            )
+            all_embeddings.extend([list(e) for e in response.embeddings.float_])
+        return all_embeddings
+    except Exception as e:
+        print(f"Cohere batch encoding failed: {e}")
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Kept for import compatibility — no-ops since we dropped local model
+# ---------------------------------------------------------------------------
+
+model = None  # no local model
+
+
+def generate_embeddings(shoe_dict, review_text=None):
+    raise ImportError("Local sentence-transformers removed. Use encode_batch_via_api instead.")
+
+
+def generate_embeddings_batch(shoe_dicts, reviews_by_model=None):
+    raise ImportError("Local sentence-transformers removed. Use encode_batch_via_api instead.")
