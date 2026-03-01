@@ -13,6 +13,8 @@ jobs:
       MONGO_URI: ${{ secrets.MONGO_URI }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
+      REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
+      REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
 
     steps:
       - name: Checkout code

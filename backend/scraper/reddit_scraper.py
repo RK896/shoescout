@@ -1,6 +1,9 @@
 """
 Reddit scraper for running shoe reviews.
 
+Uses Reddit's JSON API with a compliant API-style user-agent.
+No OAuth required for public read-only data.
+
 Sources:
   - r/RunningShoeGeeks: hot, top/week, top/month
   - r/running: search for shoe review posts
@@ -26,12 +29,11 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 load_dotenv()
 
+# Reddit requires a non-browser user-agent for their API endpoints.
+# Format: <platform>:<app_id>:<version> (by /u/<username>)
 _HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    )
+    "User-Agent": "python:shoescout:v1.0 (by /u/shoescout_app)",
+    "Accept": "application/json",
 }
 
 # Posts matching these patterns are almost certainly not reviews
@@ -48,34 +50,42 @@ _NON_REVIEW_RE = re.compile(
 # Reddit fetching helpers
 # ---------------------------------------------------------------------------
 
-def _fetch_reddit_listing(url: str, params: dict) -> list[dict]:
-    """Generic helper to fetch and parse a Reddit listing JSON."""
-    try:
-        resp = requests.get(url, params=params, headers=_HEADERS, timeout=15)
-        if resp.status_code != 200:
-            print(f"Reddit {url} returned {resp.status_code}")
-            return []
-        data = resp.json()
-        posts = []
-        for child in data["data"]["children"]:
-            try:
-                d = child["data"]
-                if d.get("score", 0) < 3:
-                    continue
-                posts.append({
-                    "title": d["title"],
-                    "selftext": d.get("selftext", ""),
-                    "created_utc": d["created_utc"],
-                    "score": d["score"],
-                    "permalink": d["permalink"],   # raw, no domain
-                    "url": f"https://www.reddit.com{d['permalink']}",
-                })
-            except Exception as e:
-                print(f"  Post parse error: {e}")
-        return posts
-    except Exception as e:
-        print(f"Reddit fetch error ({url}): {e}")
-        return []
+def _fetch_reddit_listing(url: str, params: dict, retries: int = 3) -> list[dict]:
+    """Fetch and parse a Reddit listing JSON with retry + backoff."""
+    for attempt in range(retries):
+        try:
+            resp = requests.get(url, params=params, headers=_HEADERS, timeout=15)
+            if resp.status_code == 429:
+                wait = 10 * (attempt + 1)
+                print(f"  Rate limited — waiting {wait}s before retry {attempt + 1}/{retries}")
+                time.sleep(wait)
+                continue
+            if resp.status_code != 200:
+                print(f"  Reddit {url} returned {resp.status_code}")
+                return []
+            data = resp.json()
+            posts = []
+            for child in data["data"]["children"]:
+                try:
+                    d = child["data"]
+                    if d.get("score", 0) < 3:
+                        continue
+                    posts.append({
+                        "title": d["title"],
+                        "selftext": d.get("selftext", ""),
+                        "created_utc": d["created_utc"],
+                        "score": d["score"],
+                        "permalink": d["permalink"],
+                        "url": f"https://www.reddit.com{d['permalink']}",
+                    })
+                except Exception as e:
+                    print(f"  Post parse error: {e}")
+            return posts
+        except Exception as e:
+            print(f"  Reddit fetch error ({url}): {e}")
+            if attempt < retries - 1:
+                time.sleep(5)
+    return []
 
 
 def fetch_all_posts(limit: int = 100) -> list[dict]:
@@ -84,20 +94,18 @@ def fetch_all_posts(limit: int = 100) -> list[dict]:
 
     Sources:
       - r/RunningShoeGeeks: hot, top/week, top/month
-      - r/running: top/month posts that mention shoe reviews
+      - r/running: search for shoe review posts
     """
-    seen_permalinks: set[str] = set()
-    all_posts: list[dict] = []
+    seen_permalinks = set()
+    all_posts = []
 
     sources = [
-        # (url, extra_params)
-        ("https://www.reddit.com/r/RunningShoeGeeks/hot.json",     {"limit": limit}),
-        ("https://www.reddit.com/r/RunningShoeGeeks/top.json",     {"limit": limit, "t": "week"}),
-        ("https://www.reddit.com/r/RunningShoeGeeks/top.json",     {"limit": limit, "t": "month"}),
-        # r/running is much larger — search for actual review posts
+        ("https://www.reddit.com/r/RunningShoeGeeks/hot.json",  {"limit": limit}),
+        ("https://www.reddit.com/r/RunningShoeGeeks/top.json",  {"limit": limit, "t": "week"}),
+        ("https://www.reddit.com/r/RunningShoeGeeks/top.json",  {"limit": limit, "t": "month"}),
         ("https://www.reddit.com/r/running/search.json",
-         {"q": "shoe review OR shoe miles OR running shoe", "sort": "top", "t": "month",
-          "restrict_sr": 1, "limit": 50}),
+         {"q": "shoe review OR shoe miles OR running shoe", "sort": "top",
+          "t": "month", "restrict_sr": 1, "limit": 50}),
     ]
 
     for url, params in sources:
@@ -108,8 +116,9 @@ def fetch_all_posts(limit: int = 100) -> list[dict]:
                 seen_permalinks.add(p["permalink"])
                 all_posts.append(p)
                 added += 1
-        print(f"  {url.split('/r/')[1].split('/')[0]} → {added} new posts (running total: {len(all_posts)})")
-        time.sleep(1)  # be polite to Reddit
+        label = url.split("/r/")[1].split("/")[0]
+        print(f"  {label} → {added} new posts (running total: {len(all_posts)})")
+        time.sleep(2)  # be polite — Reddit allows ~60 req/min unauthenticated
 
     return all_posts
 
@@ -137,7 +146,6 @@ def fetch_comments(permalink: str) -> list[dict]:
                     "created_utc": d.get("created_utc", 0),
                     "permalink": f"https://www.reddit.com{d.get('permalink', permalink)}",
                 })
-        # Return top 25 by score
         return sorted(comments, key=lambda c: c["score"], reverse=True)[:25]
     except Exception as e:
         print(f"  Comment fetch error: {e}")
