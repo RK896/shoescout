@@ -36,16 +36,34 @@ app.add_middleware(
 )
 
 
+_client = None
+_db = None
+_collection = None
+_indexes_ensured = False
+
 def get_db():
-    uri = os.getenv("MONGO_URI")
-    client = MongoClient(uri, server_api=ServerApi('1'))
-    try:
-        client.admin.command('ping')
-        print("Pinged your deployment. You successfully connected to MongoDB!")
-    except Exception as e:
-        print(e)
-    db = client["shoe_scout"]
-    return db
+    """Lazy initialization of MongoDB connection (fork-safe)."""
+    global _client, _db
+    if _db is None:
+        uri = os.getenv("MONGO_URI")
+        _client = MongoClient(uri, server_api=ServerApi('1'))
+        try:
+            _client.admin.command('ping')
+            print("Pinged your deployment. You successfully connected to MongoDB!")
+        except Exception as e:
+            print(e)
+        _db = _client["shoe_scout"]
+    return _db
+
+def get_collection():
+    """Get the shoes collection (fork-safe)."""
+    global _collection, _indexes_ensured
+    if _collection is None:
+        _collection = get_db()["shoes"]
+    if not _indexes_ensured:
+        ensure_indexes()
+        _indexes_ensured = True
+    return _collection
 
 
 def parse_price(price_str: str) -> float:
@@ -65,28 +83,29 @@ def read_root():
 @app.get("/health")
 def health_check():
     try:
-        collection.find_one()
+        get_collection().find_one()
         return {"status": "healthy", "database": "connected", "embeddings": EMBEDDINGS_AVAILABLE}
     except Exception as e:
         return {"status": "unhealthy", "database": "disconnected", "error": str(e)}
 
 
-db = get_db()
-collection = db["shoes"]
+# Note: db and collection are now lazily initialized via get_db() and get_collection()
 
-# Create MongoDB indexes for performance
+# Create MongoDB indexes for performance (called lazily on first request)
 def ensure_indexes():
     """Create indexes for common query patterns."""
     try:
-        collection.create_index([("model", ASCENDING)], unique=True, background=True)
-        collection.create_index([("brand", ASCENDING)], background=True)
-        collection.create_index([("retailers.price", ASCENDING)], background=True)
-        collection.create_index([("price_history.timestamp", DESCENDING)], background=True)
+        # Use _collection directly to avoid recursion
+        coll = _collection
+        if coll is None:
+            return
+        coll.create_index([("model", ASCENDING)], unique=True, background=True)
+        coll.create_index([("brand", ASCENDING)], background=True)
+        coll.create_index([("retailers.price", ASCENDING)], background=True)
+        coll.create_index([("price_history.timestamp", DESCENDING)], background=True)
         print("MongoDB indexes ensured")
     except Exception as e:
         print(f"Warning: Could not create indexes: {e}")
-
-ensure_indexes()
 
 
 def _shoes_for_response(shoes_list):
@@ -98,6 +117,7 @@ def _shoes_for_response(shoes_list):
 
 def _text_search_shoes(query: str, limit: int = 100):
     """MongoDB text/regex search on brand, model, retailers when semantic search unavailable."""
+    collection = get_collection()
     if not query or not query.strip():
         return list(collection.find({}, {"_id": 0}))
     escaped = re.escape(query.strip())
@@ -119,6 +139,7 @@ def get_shoes(
     limit: int = Query(24, ge=1, le=100, description="Items per page")
 ):
     try:
+        collection = get_collection()
         skip = (page - 1) * limit
         total_count = collection.count_documents({})
         shoes = list(collection.find({}, {"_id": 0}).skip(skip).limit(limit))
@@ -137,7 +158,7 @@ def get_shoes(
         # Tier 2: Cohere API batch (reliable, works on free Render tier)
         shoes_needing_embeddings = [s for s in shoes if s.get("embeddings") is None][:100]
         if shoes_needing_embeddings:
-            reviews_collection = db["reviews"]
+            reviews_collection = get_db()["reviews"]
             reviews_by_model = {}
             for shoe in shoes_needing_embeddings:
                 model_name = shoe.get("model")
@@ -179,6 +200,7 @@ def get_shoes(
 @app.get("/search")
 def search_shoes(q: str = Query("", description="Search query; empty returns all shoes.")):
     try:
+        collection = get_collection()
         if not q or not q.strip():
             all_shoes = list(collection.find({}, {"_id": 0}))
             return _shoes_for_response(all_shoes)
@@ -270,7 +292,7 @@ def scrape_and_store():
         shoes.extend(roadrunnersports.scrape_roadrunnersports())
     except Exception as e:
         print(f"Road Runner Sports scraper failed: {e}")
-    add_shoes_to_db(shoes, db)
+    add_shoes_to_db(shoes, get_db())
     return {"message": "shoes scraped and stored", "count": len(shoes)}
 
 
@@ -363,7 +385,7 @@ def clear_all_reviews(x_admin_key: str = Header(None)):
     admin_key = os.getenv("ADMIN_KEY", "")
     if not admin_key or x_admin_key != admin_key:
         raise HTTPException(status_code=403, detail="Forbidden: invalid or missing admin key")
-    reviews_collection = db["reviews"]
+    reviews_collection = get_db()["reviews"]
     result = reviews_collection.delete_many({})
     return {"message": "All reviews cleared", "deleted_count": result.deleted_count}
 
@@ -378,6 +400,7 @@ def scrape_reddit_reviews():
 @app.post("/chat")
 def chat_endpoint(body: dict):
     """AI shoe recommendation chatbot powered by Claude."""
+    collection = get_collection()
     message = body.get("message", "").strip()
     if not message:
         raise HTTPException(status_code=400, detail="Message is required")
@@ -415,7 +438,7 @@ def chat_endpoint(body: dict):
         relevant_shoes = _text_search_shoes(message, limit=8)
 
     # Fetch reviews for relevant shoes
-    reviews_collection = db["reviews"]
+    reviews_collection = get_db()["reviews"]
     shoes_with_reviews = []
     for shoe in relevant_shoes:
         shoe_data = dict(shoe)
@@ -437,7 +460,7 @@ def chat_endpoint(body: dict):
 
 def _get_reviews_for_shoe_impl(shoe_model: str):
     """Shared impl for path and query param."""
-    reviews_collection = db["reviews"]
+    reviews_collection = get_db()["reviews"]
     shoe_review = reviews_collection.find_one(
         {"shoe_model": shoe_model},
         {"_id": 0}
@@ -493,7 +516,7 @@ def get_reviews(shoe_model: str = None):
     """Get all reviews grouped by shoe, or reviews for one shoe if shoe_model query provided."""
     if shoe_model is not None:
         return _get_reviews_for_shoe_impl(shoe_model)
-    reviews_collection = db["reviews"]
+    reviews_collection = get_db()["reviews"]
     all_reviews = list(reviews_collection.find({}, {"_id": 0}))
     return all_reviews
 
@@ -501,6 +524,7 @@ def get_reviews(shoe_model: str = None):
 @app.get("/shoes/{shoe_model:path}/price-history")
 def get_price_history(shoe_model: str):
     """Get price history for a specific shoe model."""
+    collection = get_collection()
     shoe = collection.find_one({"model": shoe_model}, {"_id": 0, "price_history": 1, "model": 1})
     if not shoe:
         raise HTTPException(status_code=404, detail=f"Shoe '{shoe_model}' not found")
@@ -524,6 +548,7 @@ def get_deals(
     Returns shoes where any retailer's current price is at least min_discount%
     below the historical average price. Sorted by discount percentage (highest first).
     """
+    collection = get_collection()
     shoes = list(collection.find(
         {"price_history": {"$exists": True, "$ne": []}},
         {"_id": 0, "embeddings": 0}
@@ -591,6 +616,7 @@ def get_deals(
 @app.get("/brands")
 def get_brands():
     """Returns list of distinct brands with count of models for each."""
+    collection = get_collection()
     pipeline = [
         {"$group": {
             "_id": "$brand",
@@ -619,6 +645,7 @@ def get_similar_shoes(shoe_model: str, limit: int = Query(5, ge=1, le=20)):
     Returns similar shoes based on embedding similarity.
     Uses the same embedding logic as search.
     """
+    collection = get_collection()
     # Find the target shoe
     target_shoe = collection.find_one({"model": shoe_model}, {"_id": 0})
     if not target_shoe:
@@ -629,7 +656,7 @@ def get_similar_shoes(shoe_model: str, limit: int = Query(5, ge=1, le=20)):
     # If target shoe has no embedding, try to generate one
     if target_embedding is None and EMBEDDINGS_AVAILABLE:
         try:
-            reviews_collection = db["reviews"]
+            reviews_collection = get_db()["reviews"]
             review_doc = reviews_collection.find_one({"shoe_model": shoe_model}, {"reviews": 1})
             review_text = ""
             if review_doc and review_doc.get("reviews"):
