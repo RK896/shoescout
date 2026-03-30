@@ -2,7 +2,8 @@ from pymongo import MongoClient, ASCENDING, DESCENDING
 from pymongo.server_api import ServerApi
 from fastapi import FastAPI, Query, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
-from scraper import nike, runningwarehouse, newbalance
+from scraper import nike, newbalance
+from scraper import runningwarehouse_api as runningwarehouse
 import os
 import re
 from datetime import datetime, timezone
@@ -268,8 +269,8 @@ def scrape_and_store():
     except Exception as e:
         print(f"HOKA scraper failed: {e}")
     try:
-        from scraper import saucony
-        shoes.extend(saucony.scrape_saucony())
+        from scraper import saucony_api
+        shoes.extend(saucony_api.scrape_saucony())
     except Exception as e:
         print(f"Saucony scraper failed: {e}")
     try:
@@ -278,8 +279,8 @@ def scrape_and_store():
     except Exception as e:
         print(f"Adidas scraper failed: {e}")
     try:
-        from scraper import zappos
-        shoes.extend(zappos.scrape_zappos())
+        from scraper import zappos_api
+        shoes.extend(zappos_api.scrape_zappos())
     except Exception as e:
         print(f"Zappos scraper failed: {e}")
     try:
@@ -292,6 +293,16 @@ def scrape_and_store():
         shoes.extend(roadrunnersports.scrape_roadrunnersports())
     except Exception as e:
         print(f"Road Runner Sports scraper failed: {e}")
+    try:
+        from scraper import dicks
+        shoes.extend(dicks.scrape_dicks())
+    except Exception as e:
+        print(f"Dick's Sporting Goods scraper failed: {e}")
+    try:
+        from scraper import holabird
+        shoes.extend(holabird.scrape_holabird())
+    except Exception as e:
+        print(f"Holabird Sports scraper failed: {e}")
     add_shoes_to_db(shoes, get_db())
     return {"message": "shoes scraped and stored", "count": len(shoes)}
 

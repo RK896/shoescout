@@ -72,14 +72,18 @@ def run_all_scrapers():
     all_shoes = []
 
     scrapers = [
-        ("Running Warehouse", "scraper.runningwarehouse", "scrape_runningwarehouse"),
+        # API-based scrapers (faster, no Selenium needed)
+        ("Running Warehouse", "scraper.runningwarehouse_api", "scrape_runningwarehouse"),
+        ("Dick's Sporting Goods", "scraper.dicks", "scrape_dicks"),
+        ("Zappos", "scraper.zappos_api", "scrape_zappos"),
+        ("Holabird Sports", "scraper.holabird", "scrape_holabird"),
+        ("Saucony", "scraper.saucony_api", "scrape_saucony"),
+        # Selenium-based scrapers
         ("Nike", "scraper.nike", "scrape_nike"),
         ("New Balance", "scraper.newbalance", "scrape_newbalance"),
         ("Brooks", "scraper.brooks", "scrape_brooks"),
         ("HOKA", "scraper.hoka", "scrape_hoka"),
-        ("Saucony", "scraper.saucony", "scrape_saucony"),
         ("Adidas", "scraper.adidas", "scrape_adidas"),
-        ("Zappos", "scraper.zappos", "scrape_zappos"),
         ("Fleet Feet", "scraper.fleetfeet", "scrape_fleetfeet"),
         ("Road Runner Sports", "scraper.roadrunnersports", "scrape_roadrunnersports"),
     ]
