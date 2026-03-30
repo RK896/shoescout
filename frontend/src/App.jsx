@@ -3,6 +3,16 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
+// Chart color palette for retailer lines
+const CHART_COLORS = [
+  "#f97316", // orange (primary)
+  "#2563eb", // blue
+  "#16a34a", // green
+  "#8b5cf6", // violet
+  "#0891b2", // cyan
+  "#dc2626", // red
+];
+
 // Popular shoes to suggest when no results found
 const POPULAR_SHOES = [
   "Nike Pegasus 41",
@@ -10,16 +20,21 @@ const POPULAR_SHOES = [
   "Brooks Ghost 16",
   "Hoka Clifton 9",
   "New Balance Fresh Foam 1080v13",
+  "ON Cloudmonster 2",
+  "Altra Torin 7",
+  "Saucony Endorphin Speed 4",
 ];
 
 // Keywords for "Best for" tags
 const BEST_FOR_KEYWORDS = {
   marathon: ["marathon", "26.2", "long distance race"],
-  trail: ["trail", "off-road", "hiking", "terrain"],
-  "daily trainer": ["daily trainer", "everyday", "daily run", "rotation"],
-  speed: ["speed", "tempo", "race day", "fast", "5k", "10k"],
-  recovery: ["recovery", "easy run", "slow", "cushioned"],
-  "long runs": ["long run", "high mileage", "endurance"],
+  trail: ["trail", "off-road", "hiking", "terrain", "technical trail", "ultra trail"],
+  "daily trainer": ["daily trainer", "everyday", "daily run", "rotation", "workhorse"],
+  speed: ["speed", "tempo", "race day", "fast", "5k", "10k", "carbon plate", "race shoe"],
+  recovery: ["recovery", "easy run", "slow", "cushioned", "plush", "soft"],
+  "long runs": ["long run", "high mileage", "endurance", "ultra"],
+  "wide toe box": ["wide toe", "zero drop", "natural fit", "toe splay", "bunions"],
+  stability: ["stability", "overpronation", "motion control", "support", "arch support"],
 };
 
 // Parse price string to number
@@ -69,9 +84,16 @@ function ShoeImage({ src, alt }) {
   );
 }
 
-function PriceHistory({ shoeModel }) {
+function PriceHistoryChart({ shoeModel }) {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [tooltip, setTooltip] = useState(null);
+
+  // Sanitized ID prefix for SVG gradient IDs (must be unique per shoe)
+  const idPrefix = useMemo(
+    () => "ph-" + shoeModel.replace(/[^a-zA-Z0-9]/g, "").slice(0, 20),
+    [shoeModel]
+  );
 
   useEffect(() => {
     fetch(`${API_BASE_URL}/shoes/${encodeURIComponent(shoeModel)}/price-history`)
@@ -83,32 +105,289 @@ function PriceHistory({ shoeModel }) {
       .catch(() => setLoading(false));
   }, [shoeModel]);
 
+  const chartData = useMemo(() => {
+    if (!history.length) return null;
+
+    // Group by retailer, then by calendar day (average prices per day)
+    const byRetailer = {};
+    history.forEach((entry) => {
+      const retailer = entry.retailer || "Unknown";
+      const price = entry.price_value;
+      if (!price || price === Infinity || isNaN(price)) return;
+      const d = new Date(entry.timestamp);
+      const dayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      if (!byRetailer[retailer]) byRetailer[retailer] = {};
+      if (!byRetailer[retailer][dayKey]) byRetailer[retailer][dayKey] = [];
+      byRetailer[retailer][dayKey].push(price);
+    });
+
+    // Convert to sorted point arrays, keep retailers with ≥2 days of data
+    const series = Object.entries(byRetailer)
+      .map(([retailer, days]) => ({
+        retailer,
+        points: Object.entries(days)
+          .map(([k, prices]) => ({
+            date: new Date(k),
+            price: prices.reduce((a, b) => a + b, 0) / prices.length,
+          }))
+          .sort((a, b) => a.date - b.date),
+      }))
+      .filter((s) => s.points.length >= 2)
+      .sort((a, b) => b.points.length - a.points.length)
+      .slice(0, 6);
+
+    // Stats from all raw history (not just daily agg)
+    const allPrices = history
+      .map((h) => h.price_value)
+      .filter((p) => p && p !== Infinity && !isNaN(p));
+    const statsMin = Math.min(...allPrices);
+    const statsMax = Math.max(...allPrices);
+    const statsAvg = allPrices.reduce((a, b) => a + b, 0) / allPrices.length;
+
+    return { series, statsMin, statsMax, statsAvg, hasChart: series.length > 0 };
+  }, [history]);
+
   if (loading) return null;
-  if (history.length === 0) return null;
+  if (!chartData || history.length === 0) return null;
 
-  // Get min/max/avg prices
-  const prices = history.map(h => h.price_value).filter(p => p && p !== Infinity);
-  if (prices.length === 0) return null;
+  const { series, statsMin, statsMax, statsAvg, hasChart } = chartData;
 
-  const minPrice = Math.min(...prices);
-  const maxPrice = Math.max(...prices);
-  const avgPrice = prices.reduce((a, b) => a + b, 0) / prices.length;
+  // ── SVG layout constants ──────────────────────────────────────────────────
+  const W = 400, H = 160;
+  const PAD = { top: 16, right: 12, bottom: 28, left: 46 };
+  const plotW = W - PAD.left - PAD.right;
+  const plotH = H - PAD.top - PAD.bottom;
+
+  let toX, toY, xLabels, yLabels, gridYs;
+
+  if (hasChart) {
+    const allDates = series.flatMap((s) => s.points.map((p) => p.date.getTime()));
+    const allPriceVals = series.flatMap((s) => s.points.map((p) => p.price));
+    const minTime = Math.min(...allDates);
+    const maxTime = Math.max(...allDates);
+    const minP = Math.min(...allPriceVals);
+    const maxP = Math.max(...allPriceVals);
+    const pad = (maxP - minP) * 0.12 || 10;
+    const priceMin = Math.max(0, minP - pad);
+    const priceMax = maxP + pad;
+    const timeRange = maxTime - minTime || 1;
+
+    toX = (date) => PAD.left + ((date.getTime() - minTime) / timeRange) * plotW;
+    toY = (price) => PAD.top + plotH - ((price - priceMin) / (priceMax - priceMin)) * plotH;
+
+    // Y grid: 4 evenly-spaced price levels
+    gridYs = [0.0, 0.33, 0.67, 1.0].map((t) => ({
+      price: priceMin + (priceMax - priceMin) * t,
+      y: toY(priceMin + (priceMax - priceMin) * t),
+    }));
+
+    yLabels = gridYs;
+
+    // X axis: 3-4 date labels
+    const xCount = Math.min(4, series[0].points.length);
+    xLabels = Array.from({ length: xCount }, (_, i) => {
+      const t = minTime + timeRange * (i / Math.max(xCount - 1, 1));
+      return {
+        date: new Date(t),
+        x: PAD.left + ((t - minTime) / timeRange) * plotW,
+      };
+    });
+  }
+
+  // ── SVG path helpers ──────────────────────────────────────────────────────
+  const makePath = (points) => {
+    if (points.length < 2) return "";
+    const coords = points.map((p) => [toX(p.date), toY(p.price)]);
+    let d = `M ${coords[0][0]},${coords[0][1]}`;
+    for (let i = 1; i < coords.length; i++) {
+      const cpX = (coords[i - 1][0] + coords[i][0]) / 2;
+      d += ` C ${cpX},${coords[i - 1][1]} ${cpX},${coords[i][1]} ${coords[i][0]},${coords[i][1]}`;
+    }
+    return d;
+  };
+
+  const makeArea = (points) => {
+    if (points.length < 2) return "";
+    const baseY = PAD.top + plotH;
+    const coords = points.map((p) => [toX(p.date), toY(p.price)]);
+    let d = `M ${coords[0][0]},${baseY} L ${coords[0][0]},${coords[0][1]}`;
+    for (let i = 1; i < coords.length; i++) {
+      const cpX = (coords[i - 1][0] + coords[i][0]) / 2;
+      d += ` C ${cpX},${coords[i - 1][1]} ${cpX},${coords[i][1]} ${coords[i][0]},${coords[i][1]}`;
+    }
+    d += ` L ${coords[coords.length - 1][0]},${baseY} Z`;
+    return d;
+  };
+
+  // ── Tooltip handler ───────────────────────────────────────────────────────
+  const handleMouseMove = (e) => {
+    if (!hasChart) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const svgX = ((e.clientX - rect.left) / rect.width) * W;
+    const relX = svgX - PAD.left;
+    if (relX < 0 || relX > plotW) { setTooltip(null); return; }
+
+    const allDates = series.flatMap((s) => s.points.map((p) => p.date.getTime()));
+    const minTime = Math.min(...allDates);
+    const maxTime = Math.max(...allDates);
+    const hoverT = minTime + (relX / plotW) * (maxTime - minTime);
+    const hoverDate = new Date(hoverT);
+
+    const entries = series.map((s, idx) => {
+      const nearest = s.points.reduce((best, p) =>
+        Math.abs(p.date - hoverDate) < Math.abs(best.date - hoverDate) ? p : best
+      );
+      return { retailer: s.retailer, price: nearest.price, date: nearest.date, color: CHART_COLORS[idx % CHART_COLORS.length] };
+    });
+
+    setTooltip({ x: PAD.left + relX, date: entries[0]?.date || hoverDate, entries });
+  };
 
   return (
     <div className="price-history-section">
-      <h4>Price Trends</h4>
+      <h4>Price History</h4>
+
+      {hasChart ? (
+        <div className="price-chart-wrapper" onMouseLeave={() => setTooltip(null)}>
+          {/* SVG chart */}
+          <svg
+            viewBox={`0 0 ${W} ${H}`}
+            className="price-chart-svg"
+            onMouseMove={handleMouseMove}
+            aria-label={`Price history chart for ${shoeModel}`}
+          >
+            <defs>
+              {series.map((_, i) => (
+                <linearGradient key={i} id={`${idPrefix}-g${i}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={CHART_COLORS[i % CHART_COLORS.length]} stopOpacity="0.18" />
+                  <stop offset="100%" stopColor={CHART_COLORS[i % CHART_COLORS.length]} stopOpacity="0" />
+                </linearGradient>
+              ))}
+            </defs>
+
+            {/* Chart border/background */}
+            <rect x={PAD.left} y={PAD.top} width={plotW} height={plotH}
+              fill="#fafafe" rx="4" />
+
+            {/* Horizontal grid lines */}
+            {gridYs.map((g, i) => (
+              <line key={i} x1={PAD.left} y1={g.y} x2={PAD.left + plotW} y2={g.y}
+                stroke="#e2e8f0" strokeWidth="1" />
+            ))}
+
+            {/* Area fill (single series only) */}
+            {series.length === 1 && (
+              <path d={makeArea(series[0].points)} fill={`url(#${idPrefix}-g0)`} />
+            )}
+
+            {/* Lines */}
+            {series.map((s, i) => (
+              <path
+                key={s.retailer}
+                d={makePath(s.points)}
+                fill="none"
+                stroke={CHART_COLORS[i % CHART_COLORS.length]}
+                strokeWidth={series.length === 1 ? 2.5 : 2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            ))}
+
+            {/* Data point dots (only when ≤10 points to avoid clutter) */}
+            {series.map((s, i) =>
+              s.points.length <= 10 && s.points.map((p, j) => (
+                <circle key={`${i}-${j}`}
+                  cx={toX(p.date)} cy={toY(p.price)}
+                  r="3" fill={CHART_COLORS[i % CHART_COLORS.length]}
+                  stroke="white" strokeWidth="1.5"
+                />
+              ))
+            )}
+
+            {/* Y axis labels */}
+            {yLabels.filter((_, i) => i % 2 === 0 || yLabels.length <= 4).map((l, i) => (
+              <text key={i} x={PAD.left - 6} y={l.y + 4}
+                textAnchor="end" fontSize="9" fill="#64748b">
+                ${Math.round(l.price)}
+              </text>
+            ))}
+
+            {/* X axis labels */}
+            {xLabels.map((l, i) => (
+              <text key={i} x={l.x} y={H - 4}
+                textAnchor={i === 0 ? "start" : i === xLabels.length - 1 ? "end" : "middle"}
+                fontSize="8.5" fill="#94a3b8">
+                {l.date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+              </text>
+            ))}
+
+            {/* Tooltip crosshair */}
+            {tooltip && (
+              <>
+                <line
+                  x1={tooltip.x} y1={PAD.top}
+                  x2={tooltip.x} y2={PAD.top + plotH}
+                  stroke="#1e293b" strokeWidth="1"
+                  strokeDasharray="3,2" opacity="0.45"
+                />
+                {tooltip.entries.map((entry, i) => (
+                  <circle key={i}
+                    cx={tooltip.x} cy={toY(entry.price)}
+                    r="4.5" fill={entry.color}
+                    stroke="white" strokeWidth="2"
+                  />
+                ))}
+              </>
+            )}
+          </svg>
+
+          {/* Hover tooltip box */}
+          {tooltip && (
+            <div
+              className="price-chart-tooltip"
+              style={{ left: `${Math.min(((tooltip.x - PAD.left) / plotW) * 100, 58)}%` }}
+            >
+              <div className="price-chart-tooltip-date">
+                {tooltip.date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+              </div>
+              {tooltip.entries.map((e, i) => (
+                <div key={i} className="price-chart-tooltip-row">
+                  <span className="price-chart-tooltip-dot" style={{ background: e.color }} />
+                  <span className="price-chart-tooltip-retailer">{e.retailer}</span>
+                  <span className="price-chart-tooltip-price">${e.price.toFixed(2)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {/* Per-retailer legend (multi-series only) */}
+      {hasChart && series.length > 1 && (
+        <div className="price-chart-legend">
+          {series.map((s, i) => (
+            <div key={s.retailer} className="price-chart-legend-item">
+              <span className="price-chart-legend-dot"
+                style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />
+              <span>{s.retailer}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Stats strip always shown */}
       <div className="price-history-stats">
         <div className="price-stat">
           <span className="price-stat-label">Lowest</span>
-          <span className="price-stat-value price-stat--low">${minPrice.toFixed(0)}</span>
+          <span className="price-stat-value price-stat--low">${statsMin.toFixed(0)}</span>
         </div>
         <div className="price-stat">
           <span className="price-stat-label">Average</span>
-          <span className="price-stat-value">${avgPrice.toFixed(0)}</span>
+          <span className="price-stat-value">${statsAvg.toFixed(0)}</span>
         </div>
         <div className="price-stat">
           <span className="price-stat-label">Highest</span>
-          <span className="price-stat-value price-stat--high">${maxPrice.toFixed(0)}</span>
+          <span className="price-stat-value price-stat--high">${statsMax.toFixed(0)}</span>
         </div>
       </div>
     </div>
@@ -150,11 +429,140 @@ function SimilarShoes({ shoeModel }) {
   );
 }
 
+// ─── Price Alert Modal ────────────────────────────────────────────────────────
+function PriceAlertModal({ shoe, onClose }) {
+  const minPrice = getMinPrice(shoe);
+  const suggestedTarget = minPrice < Infinity ? Math.floor(minPrice * 0.9) : "";
+
+  const [email, setEmail] = useState("");
+  const [targetPrice, setTargetPrice] = useState(suggestedTarget);
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState(null); // { type: 'success' | 'error', message }
+
+  useEffect(() => {
+    const handler = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!email.trim() || !String(targetPrice).trim()) return;
+    setSubmitting(true);
+    setResult(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/alerts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: email.trim(),
+          shoe_model: shoe.model,
+          target_price: parseFloat(targetPrice),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Failed to create alert.");
+      setResult({ type: "success", message: data.message });
+    } catch (err) {
+      setResult({ type: "error", message: err.message });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div
+      className="alert-modal-overlay"
+      onClick={onClose}
+      role="button"
+      tabIndex={0}
+      aria-label="Close price alert"
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onClose(); }}
+    >
+      <div className="alert-modal" onClick={(e) => e.stopPropagation()}>
+        <button className="alert-modal-close" onClick={onClose} aria-label="Close">×</button>
+
+        <div className="alert-modal-header">
+          <span className="alert-modal-icon">🔔</span>
+          <div>
+            <h3 className="alert-modal-title">Set Price Alert</h3>
+            <p className="alert-modal-subtitle">{shoe.model}</p>
+          </div>
+        </div>
+
+        {/* Current price context */}
+        {minPrice < Infinity && (
+          <div className="alert-current-price-row">
+            <span className="alert-current-label">Current best price</span>
+            <span className="alert-current-value">${minPrice.toFixed(2)}</span>
+          </div>
+        )}
+
+        {result ? (
+          <div className={`alert-result alert-result--${result.type}`}>
+            {result.type === "success" ? "✓" : "✗"} {result.message}
+            {result.type === "success" && (
+              <button className="alert-done-btn" onClick={onClose}>Done</button>
+            )}
+          </div>
+        ) : (
+          <form className="alert-form" onSubmit={handleSubmit}>
+            <label className="alert-label">
+              Your email
+              <input
+                className="alert-input"
+                type="email"
+                placeholder="you@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                autoFocus
+              />
+            </label>
+
+            <label className="alert-label">
+              Alert me when price drops to
+              <div className="alert-price-input-wrapper">
+                <span className="alert-dollar">$</span>
+                <input
+                  className="alert-input alert-input--price"
+                  type="number"
+                  min="1"
+                  max={minPrice < Infinity ? Math.ceil(minPrice) : 1000}
+                  step="1"
+                  placeholder={suggestedTarget || "120"}
+                  value={targetPrice}
+                  onChange={(e) => setTargetPrice(e.target.value)}
+                  required
+                />
+              </div>
+              {minPrice < Infinity && (
+                <span className="alert-hint">
+                  Suggested: ${suggestedTarget} (10% below current)
+                </span>
+              )}
+            </label>
+
+            <button
+              className="alert-submit-btn"
+              type="submit"
+              disabled={submitting || !email.trim() || !targetPrice}
+            >
+              {submitting ? "Setting alert…" : "🔔 Notify Me"}
+            </button>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ShoeCard({ shoe, onCompareToggle, isCompareSelected, compareCount }) {
   const [reviews, setReviews] = useState(null); // null = not loaded yet
   const [loadingReviews, setLoadingReviews] = useState(false);
   const [showReviews, setShowReviews] = useState(false);
   const [bestForTags, setBestForTags] = useState([]);
+  const [showAlertModal, setShowAlertModal] = useState(false);
 
   // Lazy: only fetch reviews when the user clicks the reviews button
   const handleOpenReviews = useCallback(() => {
@@ -225,6 +633,20 @@ function ShoeCard({ shoe, onCompareToggle, isCompareSelected, compareCount }) {
             <span>Compare</span>
           </label>
 
+          {/* Sale Badge */}
+          {shoe.discount_pct && (
+            <div className="sale-badge">
+              {Math.round(shoe.discount_pct)}% OFF
+            </div>
+          )}
+
+          {/* Price Drop Indicator */}
+          {shoe.average_price && shoe.discount_pct >= 10 && (
+            <div className="price-drop-indicator">
+              🔥 Price Drop
+            </div>
+          )}
+
           <ShoeImage src={shoe.image} alt={shoe.model} />
           <h2>{shoe.model}</h2>
           <p>
@@ -255,14 +677,27 @@ function ShoeCard({ shoe, onCompareToggle, isCompareSelected, compareCount }) {
             ))}
           </ul>
 
-          <button
-            className="reviews-toggle-button"
-            onClick={handleOpenReviews}
-          >
-            💬 Reviews
-          </button>
+          <div className="shoe-card-buttons">
+            <button
+              className="reviews-toggle-button"
+              onClick={handleOpenReviews}
+            >
+              💬 Reviews
+            </button>
+            <button
+              className="alert-toggle-button"
+              onClick={() => setShowAlertModal(true)}
+              aria-label={`Set price alert for ${shoe.model}`}
+            >
+              🔔 Alert
+            </button>
+          </div>
         </div>
       </div>
+
+      {showAlertModal && (
+        <PriceAlertModal shoe={shoe} onClose={() => setShowAlertModal(false)} />
+      )}
 
       {showReviews && (
         <div
@@ -302,7 +737,7 @@ function ShoeCard({ shoe, onCompareToggle, isCompareSelected, compareCount }) {
                     </li>
                   ))}
                 </ul>
-                <PriceHistory shoeModel={shoe.model} />
+                <PriceHistoryChart shoeModel={shoe.model} />
               </div>
             </div>
 
@@ -606,6 +1041,8 @@ function FilterSidebar({
   setSelectedBrands,
   selectedRetailers,
   setSelectedRetailers,
+  selectedGender,
+  setSelectedGender,
   priceRange,
   setPriceRange,
   maxPrice,
@@ -629,6 +1066,7 @@ function FilterSidebar({
   const hasActiveFilters =
     selectedBrands.length > 0 ||
     selectedRetailers.length > 0 ||
+    selectedGender !== null ||
     priceRange[0] > 0 ||
     priceRange[1] < maxPrice;
 
@@ -641,6 +1079,25 @@ function FilterSidebar({
             Clear all
           </button>
         )}
+      </div>
+
+      {/* Gender toggle */}
+      <div className="filter-section">
+        <h4>Gender</h4>
+        <div className="gender-pills">
+          <button 
+            className={`gender-pill ${selectedGender === 'mens' ? 'active' : ''}`}
+            onClick={() => setSelectedGender(selectedGender === 'mens' ? null : 'mens')}
+          >
+            👟 Men's
+          </button>
+          <button 
+            className={`gender-pill ${selectedGender === 'womens' ? 'active' : ''}`}
+            onClick={() => setSelectedGender(selectedGender === 'womens' ? null : 'womens')}
+          >
+            👟 Women's
+          </button>
+        </div>
       </div>
 
       {/* Sort */}
@@ -755,6 +1212,8 @@ function App() {
   // Filter state
   const [selectedBrands, setSelectedBrands] = useState([]);
   const [selectedRetailers, setSelectedRetailers] = useState([]);
+  const [selectedGender, setSelectedGender] = useState(null); // null, 'mens', or 'womens'
+  const [selectedCategory, setSelectedCategory] = useState(null); // null, 'road', or 'trail'
   const [priceRange, setPriceRange] = useState([0, 300]);
   const [sortOption, setSortOption] = useState("relevance");
 
@@ -916,6 +1375,16 @@ function App() {
       return minPrice >= priceRange[0] && minPrice <= priceRange[1];
     });
 
+    // Filter by gender (local filter for consistency)
+    if (selectedGender) {
+      result = result.filter((s) => {
+        if (!s.gender) return true; // Keep if no gender info
+        if (selectedGender === 'mens') return s.gender.toLowerCase().startsWith('men');
+        if (selectedGender === 'womens') return s.gender.toLowerCase().startsWith('women');
+        return true;
+      });
+    }
+
     // Sort
     switch (sortOption) {
       case "price-low":
@@ -934,7 +1403,30 @@ function App() {
     }
 
     return result;
-  }, [shoes, selectedBrands, selectedRetailers, priceRange, sortOption]);
+  }, [shoes, selectedBrands, selectedRetailers, selectedGender, priceRange, sortOption]);
+
+  // Re-fetch when gender, brand, retailer, or category changes
+  useEffect(() => {
+    if (!loading) { // don't trigger during initial load
+      const genderParam = selectedGender ? `&gender=${selectedGender}` : "";
+      const brandParam = selectedBrands.length > 0 ? `&brand=${encodeURIComponent(selectedBrands[0])}` : "";
+      const retailerParam = selectedRetailers.length > 0 ? `&retailer=${encodeURIComponent(selectedRetailers[0])}` : "";
+      const categoryParam = selectedCategory ? `&category=${selectedCategory}` : "";
+      
+      setLoading(true);
+      fetch(`${API_BASE_URL}/shoes?page=1&limit=24${genderParam}${brandParam}${retailerParam}${categoryParam}`)
+        .then((res) => res.json())
+        .then((data) => {
+          const shoeData = data.shoes || [];
+          setShoes(shoeData);
+          setTotalPages(data.total_pages || 1);
+          setTotalShoes(data.total || shoeData.length);
+          setPage(1);
+          setLoading(false);
+        })
+        .catch(() => setLoading(false));
+    }
+  }, [selectedGender, selectedBrands, selectedRetailers, selectedCategory]);
 
   // Compare handlers
   const handleCompareToggle = useCallback((shoe) => {
@@ -951,7 +1443,9 @@ function App() {
   const clearFilters = useCallback(() => {
     setSelectedBrands([]);
     setSelectedRetailers([]);
-    setPriceRange([0, maxPrice]);
+    setSelectedGender(null);
+    setSelectedCategory(null);
+    setPriceRange([0, 300]);
     setSortOption("relevance");
   }, [maxPrice]);
 
@@ -1031,7 +1525,7 @@ function App() {
               ))}
             </div>
           </div>
-          {(selectedBrands.length > 0 || selectedRetailers.length > 0 || priceRange[0] > 0 || priceRange[1] < maxPrice) && (
+          {(selectedBrands.length > 0 || selectedRetailers.length > 0 || selectedGender || priceRange[0] > 0 || priceRange[1] < maxPrice) && (
             <button className="clear-filters-btn-large" onClick={clearFilters}>
               Clear all filters
             </button>
@@ -1071,8 +1565,8 @@ function App() {
         <div className="header-title">
           <h1>ShoeScout</h1>
         </div>
-        <p className="header-tagline">Find the best deals on running shoes</p>
-        <p className="header-updated">Prices updated every 6 hours · Reviews from Reddit</p>
+        <p className="header-tagline">Find the best deals on running shoes from 15+ retailers</p>
+        <p className="header-updated">Prices updated every 6 hours · AI-powered search · Reddit community reviews</p>
 
         {/* Deals toggle */}
         {deals.length > 0 && (
@@ -1094,6 +1588,28 @@ function App() {
           className="search-bar"
           autoComplete="off"
         />
+
+        {/* Category Tabs */}
+        <div className="category-tabs">
+          <button 
+            className={`category-tab ${selectedCategory === null ? 'active' : ''}`}
+            onClick={() => setSelectedCategory(null)}
+          >
+            All Shoes
+          </button>
+          <button 
+            className={`category-tab ${selectedCategory === 'road' ? 'active' : ''}`}
+            onClick={() => setSelectedCategory('road')}
+          >
+            🏢 Road
+          </button>
+          <button 
+            className={`category-tab ${selectedCategory === 'trail' ? 'active' : ''}`}
+            onClick={() => setSelectedCategory('trail')}
+          >
+            ⛰️ Trail
+          </button>
+        </div>
         {/* Mobile filter toggle */}
         <button
           className="mobile-filter-toggle"
@@ -1112,6 +1628,8 @@ function App() {
           setSelectedBrands={setSelectedBrands}
           selectedRetailers={selectedRetailers}
           setSelectedRetailers={setSelectedRetailers}
+          selectedGender={selectedGender}
+          setSelectedGender={setSelectedGender}
           priceRange={priceRange}
           setPriceRange={setPriceRange}
           maxPrice={maxPrice}
@@ -1136,6 +1654,8 @@ function App() {
                 setSelectedBrands={setSelectedBrands}
                 selectedRetailers={selectedRetailers}
                 setSelectedRetailers={setSelectedRetailers}
+                selectedGender={selectedGender}
+                setSelectedGender={setSelectedGender}
                 priceRange={priceRange}
                 setPriceRange={setPriceRange}
                 maxPrice={maxPrice}

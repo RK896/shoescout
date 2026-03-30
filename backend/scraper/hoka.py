@@ -157,6 +157,8 @@ def scrape_hoka():
                 "price": price if price else "",
                 "image": img,
                 "link": link,
+                "gender": "mens", # inferred from URL
+                "category": "road", # inferred from URL
                 "retailer": "HOKA"
             })
 

@@ -12,6 +12,9 @@ jobs:
       MONGO_URI: ${{ secrets.MONGO_URI }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
+      SMTP_USER: ${{ secrets.SMTP_USER }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+      SITE_URL: ${{ secrets.SITE_URL }}
 
     steps:
       - name: Checkout code

@@ -1,6 +1,12 @@
 """
 Standalone scraper runner used by GitHub Actions (scraper.yaml).
 Imports scrapers directly and writes to MongoDB without starting the FastAPI app.
+
+Scrapers:
+- API-based (fast, no browser): Running Warehouse, Dick's, Zappos, Holabird,
+  Saucony, Road Runner Sports, ASICS, REI, ON Running, Altra
+- Selenium-based (slower, needs browser): Nike, New Balance, Brooks, HOKA,
+  Adidas, Fleet Feet, Finish Line
 """
 import os
 import re
@@ -78,6 +84,12 @@ def run_all_scrapers():
         ("Zappos", "scraper.zappos_api", "scrape_zappos"),
         ("Holabird Sports", "scraper.holabird", "scrape_holabird"),
         ("Saucony", "scraper.saucony_api", "scrape_saucony"),
+        ("Road Runner Sports", "scraper.roadrunnersports_api", "scrape_roadrunnersports"),
+        ("Finish Line", "scraper.finishline", "scrape_finishline"),
+        ("ASICS", "scraper.asics", "scrape_asics"),
+        ("REI", "scraper.rei", "scrape_rei"),
+        ("ON Running", "scraper.on_running", "scrape_on"),
+        ("Altra", "scraper.altra", "scrape_altra"),
         # Selenium-based scrapers
         ("Nike", "scraper.nike", "scrape_nike"),
         ("New Balance", "scraper.newbalance", "scrape_newbalance"),
@@ -85,7 +97,6 @@ def run_all_scrapers():
         ("HOKA", "scraper.hoka", "scrape_hoka"),
         ("Adidas", "scraper.adidas", "scrape_adidas"),
         ("Fleet Feet", "scraper.fleetfeet", "scrape_fleetfeet"),
-        ("Road Runner Sports", "scraper.roadrunnersports", "scrape_roadrunnersports"),
     ]
 
     for name, module_path, func_name in scrapers:
@@ -100,6 +111,14 @@ def run_all_scrapers():
 
     add_shoes_to_db(all_shoes, collection)
     print(f"\nTotal scraped: {len(all_shoes)} shoes stored/updated in MongoDB")
+
+    # Check price alerts and fire emails
+    try:
+        from alerts import check_and_fire_alerts
+        check_and_fire_alerts(db)
+    except Exception as e:
+        print(f"Alert check failed (non-fatal): {e}")
+
     return len(all_shoes)
 
 

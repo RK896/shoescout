@@ -1,17 +1,67 @@
 from pymongo import MongoClient, ASCENDING, DESCENDING
 from pymongo.server_api import ServerApi
-from fastapi import FastAPI, Query, HTTPException, Header
+from fastapi import FastAPI, Query, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from bson import ObjectId
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from scraper import nike, newbalance
 from scraper import runningwarehouse_api as runningwarehouse
 import os
 import re
+import logging
+import json
+import sentry_sdk
+from sentry_sdk.integrations.fastapi import FastApiIntegration
+from sentry_sdk.integrations.starlette import StarletteIntegration
 from datetime import datetime, timezone
 from typing import Optional
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
+
+# Sentry initialization
+SENTRY_DSN = os.getenv("SENTRY_DSN")
+if SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        integrations=[
+            StarletteIntegration(transaction_style="endpoint"),
+            FastApiIntegration(at_exit=True),
+        ],
+        traces_sample_rate=1.0,
+        profiles_sample_rate=1.0,
+    )
+
+# Structured JSON Logging
+class JsonFormatter(logging.Formatter):
+    def format(self, record):
+        log_entry = {
+            "timestamp": self.formatTime(record, self.datefmt),
+            "level": record.levelname,
+            "message": record.getMessage(),
+            "module": record.module,
+            "funcName": record.funcName,
+        }
+        if record.exc_info:
+            log_entry["exception"] = self.formatException(record.exc_info)
+        return json.dumps(log_entry)
+
+logger = logging.getLogger("shoescout")
+logger.setLevel(logging.INFO)
+handler = logging.StreamHandler()
+handler.setFormatter(JsonFormatter())
+logger.addHandler(handler)
+
+# Rate limiting setup
+limiter = Limiter(key_func=get_remote_address)
+app = FastAPI(title="ShoeScout API")
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 try:
     from embeddings import generate_embeddings, create_shoe_text, model, EMBEDDINGS_AVAILABLE, generate_embeddings_batch, encode_query_via_api, encode_batch_via_api
 except Exception as e:
@@ -25,8 +75,6 @@ except Exception as e:
     def encode_batch_via_api(texts, input_type="search_document"):
         return None
 import numpy as np
-
-app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
@@ -104,6 +152,10 @@ def ensure_indexes():
         coll.create_index([("brand", ASCENDING)], background=True)
         coll.create_index([("retailers.price", ASCENDING)], background=True)
         coll.create_index([("price_history.timestamp", DESCENDING)], background=True)
+        # Alerts collection indexes
+        alerts_coll = get_db()["alerts"]
+        alerts_coll.create_index([("email", ASCENDING)], background=True)
+        alerts_coll.create_index([("shoe_model", ASCENDING), ("active", ASCENDING)], background=True)
         print("MongoDB indexes ensured")
     except Exception as e:
         print(f"Warning: Could not create indexes: {e}")
@@ -136,17 +188,44 @@ def _text_search_shoes(query: str, limit: int = 100):
 
 @app.get("/shoes")
 def get_shoes(
-    page: int = Query(1, ge=1, description="Page number (1-indexed)"),
-    limit: int = Query(24, ge=1, le=100, description="Items per page")
+    page: int = Query(1, gt=0),
+    limit: int = Query(24, gt=0),
+    brand: Optional[str] = Query(None),
+    retailer: Optional[str] = Query(None),
+    gender: Optional[str] = Query(None, description="mens or womens"),
+    category: Optional[str] = Query(None, description="road or trail")
 ):
+    """Paginated list of shoes with optional brand, retailer, gender, and category filters."""
     try:
         collection = get_collection()
         skip = (page - 1) * limit
-        total_count = collection.count_documents({})
-        shoes = list(collection.find({}, {"_id": 0}).skip(skip).limit(limit))
+        
+        query = {}
+        if brand:
+            query["brand"] = brand
+        if retailer:
+            query["retailers.retailer"] = retailer
+        if category:
+            query["category"] = category.lower()
+        if gender:
+            if gender.lower() == "mens":
+                query["gender"] = {"$regex": "^Men", "$options": "i"}
+            elif gender.lower() == "womens":
+                query["gender"] = {"$regex": "^Women", "$options": "i"}
+
+        total_count = collection.count_documents(query)
+        shoes = list(collection.find(query, {"_id": 0}).skip(skip).limit(limit))
 
         # Ensure all embeddings are lists (not numpy arrays) for JSON serialization
         for shoe in shoes:
+            # Calculate discount
+            discount_info = _calculate_shoe_discount(shoe)
+            if discount_info:
+                shoe["discount_pct"] = discount_info["discount_percent"]
+                shoe["average_price"] = discount_info["average_price"]
+
+            shoe.pop("price_history", None) # Privacy/Performance: strip history from bulk list
+
             if "embeddings" in shoe and shoe["embeddings"] is not None:
                 if hasattr(shoe["embeddings"], 'tolist'):
                     shoe["embeddings"] = shoe["embeddings"].tolist()
@@ -155,8 +234,6 @@ def get_shoes(
 
         # Generate embeddings in batch for shoes that don't have them yet.
         # Cap at 100 per call so they accumulate over time without blocking the request.
-        # Tier 1: local sentence-transformers (fast, needs ~500MB RAM)
-        # Tier 2: Cohere API batch (reliable, works on free Render tier)
         shoes_needing_embeddings = [s for s in shoes if s.get("embeddings") is None][:100]
         if shoes_needing_embeddings:
             reviews_collection = get_db()["reviews"]
@@ -186,6 +263,7 @@ def get_shoes(
                     collection.update_one({"model": shoe["model"]}, {"$set": {"embeddings": embedding}})
                     shoe["embeddings"] = embedding
                 print(f"Cohere: generated embeddings for {len(embeddings)} shoes")
+        
         return {
             "shoes": shoes,
             "page": page,
@@ -199,7 +277,8 @@ def get_shoes(
 
 
 @app.get("/search")
-def search_shoes(q: str = Query("", description="Search query; empty returns all shoes.")):
+@limiter.limit("60/minute")
+def search_shoes(request: Request, q: str = Query("", description="Search query; empty returns all shoes.")):
     try:
         collection = get_collection()
         if not q or not q.strip():
@@ -244,7 +323,10 @@ def search_shoes(q: str = Query("", description="Search query; empty returns all
 
 
 @app.post("/scrape")
-def scrape_and_store():
+def scrape_and_store(x_admin_key: str = Header(None)):
+    admin_key = os.getenv("ADMIN_KEY", "")
+    if not admin_key or x_admin_key != admin_key:
+        raise HTTPException(status_code=403, detail="Forbidden: invalid or missing admin key")
     shoes = []
     try:
         shoes.extend(runningwarehouse.scrape_runningwarehouse())
@@ -289,8 +371,8 @@ def scrape_and_store():
     except Exception as e:
         print(f"Fleet Feet scraper failed: {e}")
     try:
-        from scraper import roadrunnersports
-        shoes.extend(roadrunnersports.scrape_roadrunnersports())
+        from scraper import roadrunnersports_api
+        shoes.extend(roadrunnersports_api.scrape_roadrunnersports())
     except Exception as e:
         print(f"Road Runner Sports scraper failed: {e}")
     try:
@@ -303,6 +385,31 @@ def scrape_and_store():
         shoes.extend(holabird.scrape_holabird())
     except Exception as e:
         print(f"Holabird Sports scraper failed: {e}")
+    try:
+        from scraper import finishline
+        shoes.extend(finishline.scrape_finishline())
+    except Exception as e:
+        print(f"Finish Line scraper failed: {e}")
+    try:
+        from scraper import asics
+        shoes.extend(asics.scrape_asics())
+    except Exception as e:
+        print(f"ASICS scraper failed: {e}")
+    try:
+        from scraper import rei
+        shoes.extend(rei.scrape_rei())
+    except Exception as e:
+        print(f"REI scraper failed: {e}")
+    try:
+        from scraper import on_running
+        shoes.extend(on_running.scrape_on())
+    except Exception as e:
+        print(f"ON Running scraper failed: {e}")
+    try:
+        from scraper import altra
+        shoes.extend(altra.scrape_altra())
+    except Exception as e:
+        print(f"Altra scraper failed: {e}")
     add_shoes_to_db(shoes, get_db())
     return {"message": "shoes scraped and stored", "count": len(shoes)}
 
@@ -373,7 +480,9 @@ def add_shoes_to_db(shoes, db):
                     "$set": {
                         "brand": brand,
                         "model": shoe_model,
-                        "image": image
+                        "image": image,
+                        "gender": shoe.get("gender"),
+                        "category": shoe.get("category")
                     },
                     "$addToSet": {
                         "retailers": {
@@ -402,14 +511,19 @@ def clear_all_reviews(x_admin_key: str = Header(None)):
 
 
 @app.post("/scrape_reviews")
-def scrape_reddit_reviews():
+def scrape_reddit_reviews(x_admin_key: str = Header(None)):
+    """Trigger the Reddit review scraper."""
+    admin_key = os.getenv("ADMIN_KEY", "")
+    if not admin_key or x_admin_key != admin_key:
+        raise HTTPException(status_code=403, detail="Forbidden: invalid or missing admin key")
     from scraper.reddit_scraper import scrape_and_store_reviews
     stored = scrape_and_store_reviews(limit=100, include_comments=True)
     return {"message": "reviews scraped and stored", "count": stored}
 
 
 @app.post("/chat")
-def chat_endpoint(body: dict):
+@limiter.limit("10/minute")
+def chat_endpoint(request: Request, body: dict):
     """AI shoe recommendation chatbot powered by Claude."""
     collection = get_collection()
     message = body.get("message", "").strip()
@@ -546,8 +660,60 @@ def get_price_history(shoe_model: str):
 
     return {
         "model": shoe_model,
-        "price_history": price_history
+        "history": price_history
     }
+
+
+def _calculate_shoe_discount(shoe: dict) -> Optional[dict]:
+    """
+    Helper to calculate best discount % based on price history.
+    Returns a dict with discount_pct, current_price, and average_price or None.
+    """
+    price_history = shoe.get("price_history", [])
+    retailers = shoe.get("retailers", [])
+
+    if not price_history or not retailers:
+        return None
+
+    # Calculate average historical price per retailer
+    retailer_history = {}
+    for entry in price_history:
+        retailer_name = entry.get("retailer")
+        price_val = entry.get("price_value")
+        if retailer_name and price_val and price_val != float('inf'):
+            if retailer_name not in retailer_history:
+                retailer_history[retailer_name] = []
+            retailer_history[retailer_name].append(price_val)
+
+    best_discount = 0.0
+    best_retailer = None
+    current_price = 0.0
+    avg_price = 0.0
+
+    for retailer in retailers:
+        retailer_name = retailer.get("retailer")
+        current_price_val = parse_price(retailer.get("price", ""))
+
+        if retailer_name in retailer_history and current_price_val != float('inf'):
+            prices = retailer_history[retailer_name]
+            if len(prices) >= 1:
+                historical_avg = sum(prices) / len(prices)
+                if historical_avg > 0:
+                    discount = ((historical_avg - current_price_val) / historical_avg) * 100
+                    if discount > best_discount:
+                        best_discount = discount
+                        best_retailer = retailer_name
+                        current_price = current_price_val
+                        avg_price = historical_avg
+
+    if best_discount >= 5.0:  # Only report if at least 5% off
+        return {
+            "retailer": best_retailer,
+            "current_price": current_price,
+            "average_price": round(avg_price, 2),
+            "discount_percent": round(best_discount, 1)
+        }
+    return None
 
 
 @app.get("/deals")
@@ -567,60 +733,17 @@ def get_deals(
 
     deals = []
     for shoe in shoes:
-        price_history = shoe.get("price_history", [])
-        retailers = shoe.get("retailers", [])
-
-        if not price_history or not retailers:
-            continue
-
-        # Calculate average historical price per retailer
-        retailer_history = {}
-        for entry in price_history:
-            retailer_name = entry.get("retailer")
-            price_val = entry.get("price_value")
-            if retailer_name and price_val and price_val != float('inf'):
-                if retailer_name not in retailer_history:
-                    retailer_history[retailer_name] = []
-                retailer_history[retailer_name].append(price_val)
-
-        # Find best deal among all retailers
-        best_discount = 0
-        best_retailer = None
-        current_price = None
-        avg_price = None
-
-        for retailer in retailers:
-            retailer_name = retailer.get("retailer")
-            current_price_val = parse_price(retailer.get("price", ""))
-
-            if retailer_name in retailer_history and current_price_val != float('inf'):
-                prices = retailer_history[retailer_name]
-                if len(prices) >= 1:
-                    historical_avg = sum(prices) / len(prices)
-                    if historical_avg > 0:
-                        discount = ((historical_avg - current_price_val) / historical_avg) * 100
-                        if discount > best_discount:
-                            best_discount = discount
-                            best_retailer = retailer_name
-                            current_price = current_price_val
-                            avg_price = historical_avg
-
-        if best_discount >= min_discount:
+        discount_info = _calculate_shoe_discount(shoe)
+        if discount_info and discount_info["discount_percent"] >= min_discount:
             shoe_copy = dict(shoe)
-            shoe_copy.pop("price_history", None)  # Don't include full history in response
+            shoe_copy.pop("price_history", None)
             deals.append({
                 **shoe_copy,
-                "deal_info": {
-                    "retailer": best_retailer,
-                    "current_price": current_price,
-                    "average_price": round(avg_price, 2),
-                    "discount_percent": round(best_discount, 1)
-                }
+                "deal_info": discount_info
             })
 
     # Sort by discount percentage (highest first)
     deals.sort(key=lambda x: x["deal_info"]["discount_percent"], reverse=True)
-
     return deals[:limit]
 
 
@@ -733,3 +856,174 @@ def get_similar_shoes(shoe_model: str, limit: int = Query(5, ge=1, le=20)):
     top_similar = [shoe for _, shoe in results[:limit]]
 
     return _shoes_for_response(top_similar)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Price Alert Endpoints
+# ─────────────────────────────────────────────────────────────────────────────
+
+class AlertCreateRequest(BaseModel):
+    email: str
+    shoe_model: str
+    target_price: float
+
+
+def _alerts_collection():
+    return get_db()["alerts"]
+
+
+@app.post("/alerts")
+@limiter.limit("20/minute")
+def create_alert(request: Request, body: AlertCreateRequest):
+    """
+    Create a price-drop alert for a shoe.
+    The user will receive an email when the shoe's best price falls to
+    or below `target_price`.
+    """
+    email       = body.email.strip().lower()
+    shoe_model  = body.shoe_model.strip()
+    target_price = round(float(body.target_price), 2)
+
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Valid email address required.")
+    if not shoe_model:
+        raise HTTPException(status_code=400, detail="shoe_model is required.")
+    if target_price <= 0:
+        raise HTTPException(status_code=400, detail="target_price must be greater than 0.")
+
+    # Look up the shoe for extra metadata
+    shoe = get_collection().find_one({"model": shoe_model}, {"_id": 0, "brand": 1, "image": 1, "retailers": 1})
+    if not shoe:
+        raise HTTPException(status_code=404, detail=f"Shoe '{shoe_model}' not found.")
+
+    # Get current best price
+    best_price = float("inf")
+    for r in shoe.get("retailers", []):
+        p = parse_price(r.get("price", ""))
+        if p < best_price:
+            best_price = p
+    current_price = None if best_price == float("inf") else best_price
+
+    # De-duplicate: don't create exact duplicate alert
+    alerts_coll = _alerts_collection()
+    existing = alerts_coll.find_one({
+        "email": email,
+        "shoe_model": shoe_model,
+        "active": True
+    })
+    if existing:
+        # Update target price if different
+        if existing.get("target_price") != target_price:
+            alerts_coll.update_one(
+                {"_id": existing["_id"]},
+                {"$set": {"target_price": target_price}}
+            )
+            return {
+                "message": "Alert updated.",
+                "alert_id": str(existing["_id"]),
+                "email": email,
+                "shoe_model": shoe_model,
+                "target_price": target_price,
+                "current_price": current_price,
+            }
+        return {
+            "message": "Alert already exists.",
+            "alert_id": str(existing["_id"]),
+            "email": email,
+            "shoe_model": shoe_model,
+            "target_price": target_price,
+            "current_price": current_price,
+        }
+
+    doc = {
+        "email": email,
+        "shoe_model": shoe_model,
+        "shoe_brand": shoe.get("brand", ""),
+        "shoe_image": shoe.get("image", ""),
+        "target_price": target_price,
+        "current_price": current_price,
+        "created_at": datetime.now(timezone.utc),
+        "last_triggered": None,
+        "active": True,
+    }
+    result = alerts_coll.insert_one(doc)
+    return {
+        "message": "Alert created. You'll receive an email when the price drops to your target.",
+        "alert_id": str(result.inserted_id),
+        "email": email,
+        "shoe_model": shoe_model,
+        "target_price": target_price,
+        "current_price": current_price,
+    }
+
+
+@app.get("/alerts")
+def list_alerts(email: str = Query(..., description="Email address to look up alerts for")):
+    """List all active price alerts for a given email address."""
+    email = email.strip().lower()
+    alerts_coll = _alerts_collection()
+    alerts = list(alerts_coll.find(
+        {"email": email, "active": True},
+        {"_id": 1, "shoe_model": 1, "shoe_brand": 1, "shoe_image": 1,
+         "target_price": 1, "current_price": 1, "created_at": 1, "last_triggered": 1}
+    ))
+    for a in alerts:
+        a["id"] = str(a.pop("_id"))
+    return {"email": email, "alerts": alerts}
+
+
+@app.delete("/alerts/{alert_id}")
+def delete_alert(alert_id: str):
+    """Cancel (soft-delete) a price alert by ID."""
+    alerts_coll = _alerts_collection()
+    try:
+        oid = ObjectId(alert_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid alert ID.")
+    result = alerts_coll.update_one(
+        {"_id": oid},
+        {"$set": {"active": False}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Alert not found.")
+    return {"message": "Alert cancelled.", "alert_id": alert_id}
+
+
+@app.get("/alerts/unsubscribe")
+def unsubscribe_alert(id: str = Query(..., description="The ID of the alert to unsubscribe from")):
+    """
+    Handle unsubscribe requests from email links.
+    In a real app, this would return a nice HTML success page.
+    """
+    alerts_coll = _alerts_collection()
+    try:
+        oid = ObjectId(id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid alert ID.")
+    
+    result = alerts_coll.update_one(
+        {"_id": oid},
+        {"$set": {"active": False}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Alert not found.")
+    
+    return {
+        "message": "You have been unsubscribed from this price alert.",
+        "success": True
+    }
+
+
+@app.post("/alerts/check")
+def check_alerts(x_admin_key: str = Header(None)):
+    """
+    Manually trigger the price-alert checker.
+    Called automatically by scrape_runner.py after each scrape cycle.
+    Requires X-Admin-Key header.
+    """
+    admin_key = os.getenv("ADMIN_KEY", "")
+    if not admin_key or x_admin_key != admin_key:
+        raise HTTPException(status_code=403, detail="Forbidden: invalid or missing admin key")
+    from alerts import check_and_fire_alerts
+    fired = check_and_fire_alerts(get_db())
+    return {"message": f"Alert check complete.", "alerts_fired": fired}

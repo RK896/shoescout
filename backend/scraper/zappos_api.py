@@ -29,6 +29,7 @@ class ZapposProduct:
     image: str
     link: str
     gender: str
+    category: str = "road"
     retailer: str = "Zappos"
 
     def to_dict(self) -> dict:
@@ -38,6 +39,8 @@ class ZapposProduct:
             "price": self.price,
             "image": self.image,
             "link": self.link,
+            "gender": self.gender,
+            "category": self.category,
             "retailer": self.retailer,
         }
 
@@ -179,29 +182,38 @@ def _is_kids_shoe(name: str, brand: str) -> bool:
     return False
 
 
+    return "Unisex"
+
+
 def _infer_gender(name: str, link: str) -> str:
     """
     Infer gender from product name or URL.
-
-    Returns:
-        "Men's", "Women's", or "Unisex"
+    Returns: "Men's", "Women's", or "Unisex"
     """
     name_lower = name.lower()
     link_lower = link.lower() if link else ""
-
-    # Check for explicit gender in name
     if "women" in name_lower or "woman" in name_lower:
         return "Women's"
     if "men" in name_lower and "women" not in name_lower:
         return "Men's"
-
-    # Check URL patterns
     if "/women" in link_lower or "womens" in link_lower:
         return "Women's"
     if "/men" in link_lower or "mens" in link_lower:
         return "Men's"
-
     return "Unisex"
+
+
+def _infer_category(name: str, link: str) -> str:
+    """
+    Infer if road or trail shoe from name or URL.
+    Returns: "road" or "trail"
+    """
+    text = f"{name} {link}".lower()
+    trail_keywords = ["trail", "mountain", "gravel", "terrex", "peregrine", "hierro", "cascadia", "speedcross", "wildhorse", "terra kiger"]
+    for kw in trail_keywords:
+        if kw in text:
+            return "trail"
+    return "road"
 
 
 def _clean_model_name(name: str, brand: str) -> str:
@@ -341,6 +353,8 @@ def parse_zappos_response(response: dict) -> list[ZapposProduct]:
                 image=image,
                 link=link,
                 gender=gender,
+                category=_infer_category(name, link),
+                retailer=retailer,
             ))
 
         except Exception as e:
