@@ -25,6 +25,22 @@ const POPULAR_SHOES = [
   "Saucony Endorphin Speed 4",
 ];
 
+const SIZE_OPTIONS = [
+  "",
+  ...Array.from({ length: 23 }, (_, i) => {
+    const size = 5 + i * 0.5;
+    return Number.isInteger(size) ? String(size) : size.toFixed(1);
+  }),
+];
+
+const WIDTH_OPTIONS = [
+  { value: "", label: "Any" },
+  { value: "narrow", label: "Narrow" },
+  { value: "standard", label: "Standard" },
+  { value: "wide", label: "Wide" },
+  { value: "extra-wide", label: "Extra Wide" },
+];
+
 // Keywords for "Best for" tags
 const BEST_FOR_KEYWORDS = {
   marathon: ["marathon", "26.2", "long distance race"],
@@ -66,6 +82,100 @@ function getUniqueRetailers(shoes) {
     });
   });
   return Array.from(retailers).sort();
+}
+
+function normalizeValue(value) {
+  return String(value ?? "").trim().toLowerCase().replace(/[+\s_-]+/g, "");
+}
+
+function normalizeSizeValue(value) {
+  return normalizeValue(value).replace(/^us/, "");
+}
+
+function normalizeWidthValue(value) {
+  const normalized = normalizeValue(value);
+  if (!normalized) return "";
+  if (["n", "narrow"].includes(normalized)) return "narrow";
+  if (["d", "m", "medium", "regular", "standard", "default"].includes(normalized)) return "standard";
+  if (["w", "wide"].includes(normalized)) return "wide";
+  if (["2xwide", "doublewide", "extrawide", "xxwide", "2e", "3e", "4e"].includes(normalized)) return "extra-wide";
+  if (/^\d+e$/.test(normalized)) {
+    return parseInt(normalized, 10) >= 2 ? "extra-wide" : "wide";
+  }
+  return normalized;
+}
+
+function getVariantEntries(shoe) {
+  const variants = [];
+
+  if (Array.isArray(shoe?.size_variants)) {
+    variants.push(...shoe.size_variants);
+  }
+
+  if (Array.isArray(shoe?.variants)) {
+    variants.push(...shoe.variants);
+  }
+
+  if (Array.isArray(shoe?.available_sizes)) {
+    variants.push(...shoe.available_sizes.map((size) => (
+      typeof size === "object" ? size : { size }
+    )));
+  }
+
+  if (Array.isArray(shoe?.available_widths)) {
+    variants.push(...shoe.available_widths.map((width) => (
+      typeof width === "object" ? width : { width }
+    )));
+  }
+
+  if (Array.isArray(shoe?.sizes)) {
+    variants.push(...shoe.sizes.map((size) => (
+      typeof size === "object" ? size : { size }
+    )));
+  }
+
+  if (shoe?.size || shoe?.width) {
+    variants.push({
+      size: shoe.size,
+      width: shoe.width,
+      available: shoe.available,
+    });
+  }
+
+  return variants;
+}
+
+function shoeHasMatchingSize(shoe, selectedSize) {
+  if (!selectedSize) return true;
+
+  const target = normalizeSizeValue(selectedSize);
+  const variants = getVariantEntries(shoe).filter((variant) => variant?.available !== false);
+  if (variants.length === 0) return false;
+
+  return variants.some((variant) => {
+    const sizeFields = [variant?.size, variant?.value, variant?.name, variant?.label];
+    return sizeFields.some((field) => normalizeSizeValue(field) === target);
+  });
+}
+
+function shoeHasMatchingWidth(shoe, selectedWidth) {
+  if (!selectedWidth) return true;
+
+  const target = normalizeWidthValue(selectedWidth);
+  const variants = getVariantEntries(shoe).filter((variant) => variant?.available !== false);
+  if (variants.length === 0) return false;
+
+  return variants.some((variant) => {
+    const widthFields = [variant?.width, variant?.width_value, variant?.widthLabel, variant?.value];
+    return widthFields.some((field) => normalizeWidthValue(field) === target);
+  });
+}
+
+function getDiscountPercent(shoe) {
+  const discount = shoe?.discount_pct ?? shoe?.deal_info?.discount_percent;
+  if (typeof discount === "number") return discount;
+  const parsed = Number.parseFloat(discount);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 // Shoe image with graceful fallback
@@ -1043,6 +1153,13 @@ function FilterSidebar({
   setSelectedRetailers,
   selectedGender,
   setSelectedGender,
+  selectedCategory,
+  selectedSize,
+  setSelectedSize,
+  selectedWidth,
+  setSelectedWidth,
+  minDiscount,
+  setMinDiscount,
   priceRange,
   setPriceRange,
   maxPrice,
@@ -1067,6 +1184,10 @@ function FilterSidebar({
     selectedBrands.length > 0 ||
     selectedRetailers.length > 0 ||
     selectedGender !== null ||
+    selectedCategory !== null ||
+    selectedSize !== "" ||
+    selectedWidth !== "" ||
+    minDiscount > 0 ||
     priceRange[0] > 0 ||
     priceRange[1] < maxPrice;
 
@@ -1097,6 +1218,56 @@ function FilterSidebar({
           >
             👟 Women's
           </button>
+        </div>
+      </div>
+
+      {/* Size */}
+      <div className="filter-section">
+        <h4>Size</h4>
+        <select
+          className="sort-select"
+          value={selectedSize}
+          onChange={(e) => setSelectedSize(e.target.value)}
+        >
+          <option value="">Any size</option>
+          {SIZE_OPTIONS.filter(Boolean).map((size) => (
+            <option key={size} value={size}>{size}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Width */}
+      <div className="filter-section">
+        <h4>Width</h4>
+        <select
+          className="sort-select"
+          value={selectedWidth}
+          onChange={(e) => setSelectedWidth(e.target.value)}
+        >
+          {WIDTH_OPTIONS.map((option) => (
+            <option key={option.value || "any"} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Minimum Discount */}
+      <div className="filter-section">
+        <h4>Minimum Discount</h4>
+        <div className="discount-summary">
+          <span className="discount-summary-value">{minDiscount}%</span>
+          <span className="discount-summary-label">off or more</span>
+        </div>
+        <div className="price-slider-container">
+          <input
+            type="range"
+            min="0"
+            max="80"
+            value={minDiscount}
+            onChange={(e) => setMinDiscount(Number(e.target.value))}
+            className="price-slider"
+          />
         </div>
       </div>
 
@@ -1214,6 +1385,9 @@ function App() {
   const [selectedRetailers, setSelectedRetailers] = useState([]);
   const [selectedGender, setSelectedGender] = useState(null); // null, 'mens', or 'womens'
   const [selectedCategory, setSelectedCategory] = useState(null); // null, 'road', or 'trail'
+  const [selectedSize, setSelectedSize] = useState("");
+  const [selectedWidth, setSelectedWidth] = useState("");
+  const [minDiscount, setMinDiscount] = useState(0);
   const [priceRange, setPriceRange] = useState([0, 300]);
   const [sortOption, setSortOption] = useState("relevance");
 
@@ -1234,6 +1408,63 @@ function App() {
   }, [apiBrands, allShoes]);
   const allRetailers = useMemo(() => getUniqueRetailers(allShoes), [allShoes]);
   const maxPrice = 300;
+
+  const buildCatalogQuery = useCallback((pageNumber = 1) => {
+    const params = new URLSearchParams({
+      page: String(pageNumber),
+      limit: "24",
+    });
+
+    if (selectedGender) params.set("gender", selectedGender);
+    if (selectedCategory) params.set("category", selectedCategory);
+    if (selectedSize) params.set("size", selectedSize);
+    if (selectedWidth) params.set("width", selectedWidth);
+    if (minDiscount > 0) params.set("min_discount", String(minDiscount));
+    if (selectedBrands.length > 0) params.set("brand", selectedBrands[0]);
+    if (selectedRetailers.length > 0) params.set("retailer", selectedRetailers[0]);
+
+    return params.toString();
+  }, [
+    selectedGender,
+    selectedCategory,
+    selectedSize,
+    selectedWidth,
+    minDiscount,
+    selectedBrands,
+    selectedRetailers,
+  ]);
+
+  const fetchCatalogPage = useCallback(async (pageNumber = 1, append = false) => {
+    if (append) {
+      setLoadingMore(true);
+    } else {
+      setLoading(true);
+      setError(null);
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/shoes?${buildCatalogQuery(pageNumber)}`);
+      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+      const data = await res.json();
+      const shoeData = data.shoes || (Array.isArray(data) ? data : []);
+
+      setShoes((prev) => (append ? [...prev, ...shoeData] : shoeData));
+      setAllShoes((prev) => (append ? [...prev, ...shoeData] : shoeData));
+      setTotalPages(data.total_pages || 1);
+      setTotalShoes(data.total || shoeData.length);
+      setPage(pageNumber);
+      setError(null);
+    } catch (err) {
+      console.error("Failed to fetch shoes:", err);
+      setError("Could not connect to the server. Please try again shortly.");
+    } finally {
+      if (append) {
+        setLoadingMore(false);
+      } else {
+        setLoading(false);
+      }
+    }
+  }, [buildCatalogQuery]);
 
   // Fetch brands from API
   useEffect(() => {
@@ -1257,78 +1488,24 @@ function App() {
 
   // Fetch shoes with pagination on initial load
   useEffect(() => {
-    fetch(`${API_BASE_URL}/shoes?page=1&limit=24`)
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-        return res.json();
-      })
-      .then((data) => {
-        // Handle new paginated response format
-        const shoeData = data.shoes || (Array.isArray(data) ? data : []);
-        setShoes(shoeData);
-        setAllShoes(shoeData);
-        setTotalPages(data.total_pages || 1);
-        setTotalShoes(data.total || shoeData.length);
-        setPage(1);
-        setLoading(false);
-        setError(null);
-      })
-      .catch((err) => {
-        console.error("Failed to fetch shoes:", err);
-        setError("Could not connect to the server. Please try again shortly.");
-        setLoading(false);
-      });
-  }, []);
+    if (searchTerm.trim()) return;
+    fetchCatalogPage(1, false);
+  }, [fetchCatalogPage, searchTerm]);
 
   // Load more shoes
   const loadMore = useCallback(() => {
     if (loadingMore || page >= totalPages || searchTerm.trim()) return;
-    setLoadingMore(true);
     const nextPage = page + 1;
-    fetch(`${API_BASE_URL}/shoes?page=${nextPage}&limit=24`)
-      .then((res) => res.json())
-      .then((data) => {
-        const newShoes = data.shoes || [];
-        setShoes((prev) => [...prev, ...newShoes]);
-        setAllShoes((prev) => [...prev, ...newShoes]);
-        setPage(nextPage);
-        setLoadingMore(false);
-      })
-      .catch(() => setLoadingMore(false));
-  }, [page, totalPages, loadingMore, searchTerm]);
+    fetchCatalogPage(nextPage, true);
+  }, [page, totalPages, loadingMore, searchTerm, fetchCatalogPage]);
 
   // Debounced search: wait 300ms after user stops typing before fetching
   useEffect(() => {
     clearTimeout(debounceRef.current);
+    const q = searchTerm.trim();
+    if (!q) return undefined;
+
     debounceRef.current = setTimeout(() => {
-      const q = searchTerm.trim();
-
-      if (q === "") {
-        // Restore full list on clear
-        setLoading(true);
-        setError(null);
-        fetch(`${API_BASE_URL}/shoes?page=1&limit=24`)
-          .then((res) => {
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            return res.json();
-          })
-          .then((data) => {
-            const shoeData = data.shoes || (Array.isArray(data) ? data : []);
-            setShoes(shoeData);
-            setAllShoes(shoeData);
-            setTotalPages(data.total_pages || 1);
-            setTotalShoes(data.total || shoeData.length);
-            setPage(1);
-            setLoading(false);
-          })
-          .catch((err) => {
-            console.error("Failed to fetch shoes:", err);
-            setError("Failed to load shoes.");
-            setLoading(false);
-          });
-        return;
-      }
-
       setLoading(true);
       setError(null);
       fetch(`${API_BASE_URL}/search?q=${encodeURIComponent(q)}`)
@@ -1385,6 +1562,25 @@ function App() {
       });
     }
 
+    if (selectedCategory) {
+      result = result.filter((shoe) => {
+        if (!shoe.category) return true;
+        return shoe.category.toLowerCase() === selectedCategory;
+      });
+    }
+
+    if (selectedSize) {
+      result = result.filter((shoe) => shoeHasMatchingSize(shoe, selectedSize));
+    }
+
+    if (selectedWidth) {
+      result = result.filter((shoe) => shoeHasMatchingWidth(shoe, selectedWidth));
+    }
+
+    if (minDiscount > 0) {
+      result = result.filter((shoe) => getDiscountPercent(shoe) >= minDiscount);
+    }
+
     // Sort
     switch (sortOption) {
       case "price-low":
@@ -1403,30 +1599,18 @@ function App() {
     }
 
     return result;
-  }, [shoes, selectedBrands, selectedRetailers, selectedGender, priceRange, sortOption]);
-
-  // Re-fetch when gender, brand, retailer, or category changes
-  useEffect(() => {
-    if (!loading) { // don't trigger during initial load
-      const genderParam = selectedGender ? `&gender=${selectedGender}` : "";
-      const brandParam = selectedBrands.length > 0 ? `&brand=${encodeURIComponent(selectedBrands[0])}` : "";
-      const retailerParam = selectedRetailers.length > 0 ? `&retailer=${encodeURIComponent(selectedRetailers[0])}` : "";
-      const categoryParam = selectedCategory ? `&category=${selectedCategory}` : "";
-      
-      setLoading(true);
-      fetch(`${API_BASE_URL}/shoes?page=1&limit=24${genderParam}${brandParam}${retailerParam}${categoryParam}`)
-        .then((res) => res.json())
-        .then((data) => {
-          const shoeData = data.shoes || [];
-          setShoes(shoeData);
-          setTotalPages(data.total_pages || 1);
-          setTotalShoes(data.total || shoeData.length);
-          setPage(1);
-          setLoading(false);
-        })
-        .catch(() => setLoading(false));
-    }
-  }, [selectedGender, selectedBrands, selectedRetailers, selectedCategory]);
+  }, [
+    shoes,
+    selectedBrands,
+    selectedRetailers,
+    selectedGender,
+    selectedCategory,
+    selectedSize,
+    selectedWidth,
+    minDiscount,
+    priceRange,
+    sortOption,
+  ]);
 
   // Compare handlers
   const handleCompareToggle = useCallback((shoe) => {
@@ -1445,6 +1629,9 @@ function App() {
     setSelectedRetailers([]);
     setSelectedGender(null);
     setSelectedCategory(null);
+    setSelectedSize("");
+    setSelectedWidth("");
+    setMinDiscount(0);
     setPriceRange([0, 300]);
     setSortOption("relevance");
   }, [maxPrice]);
@@ -1525,7 +1712,7 @@ function App() {
               ))}
             </div>
           </div>
-          {(selectedBrands.length > 0 || selectedRetailers.length > 0 || selectedGender || priceRange[0] > 0 || priceRange[1] < maxPrice) && (
+          {(selectedBrands.length > 0 || selectedRetailers.length > 0 || selectedGender || selectedCategory || selectedSize || selectedWidth || minDiscount > 0 || priceRange[0] > 0 || priceRange[1] < maxPrice) && (
             <button className="clear-filters-btn-large" onClick={clearFilters}>
               Clear all filters
             </button>
@@ -1630,6 +1817,13 @@ function App() {
           setSelectedRetailers={setSelectedRetailers}
           selectedGender={selectedGender}
           setSelectedGender={setSelectedGender}
+          selectedCategory={selectedCategory}
+          selectedSize={selectedSize}
+          setSelectedSize={setSelectedSize}
+          selectedWidth={selectedWidth}
+          setSelectedWidth={setSelectedWidth}
+          minDiscount={minDiscount}
+          setMinDiscount={setMinDiscount}
           priceRange={priceRange}
           setPriceRange={setPriceRange}
           maxPrice={maxPrice}
@@ -1656,6 +1850,13 @@ function App() {
                 setSelectedRetailers={setSelectedRetailers}
                 selectedGender={selectedGender}
                 setSelectedGender={setSelectedGender}
+                selectedCategory={selectedCategory}
+                selectedSize={selectedSize}
+                setSelectedSize={setSelectedSize}
+                selectedWidth={selectedWidth}
+                setSelectedWidth={setSelectedWidth}
+                minDiscount={minDiscount}
+                setMinDiscount={setMinDiscount}
                 priceRange={priceRange}
                 setPriceRange={setPriceRange}
                 maxPrice={maxPrice}

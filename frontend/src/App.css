@@ -280,6 +280,26 @@ h1 {
   outline: none;
 }
 
+.discount-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.discount-summary-value {
+  color: var(--text);
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.discount-summary-label {
+  white-space: nowrap;
+}
+
 .price-range-inputs {
   display: flex;
   align-items: center;

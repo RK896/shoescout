@@ -32,6 +32,17 @@ class ShoeVariant:
     variant_id: str
     link: str
 
+    def to_dict(self) -> dict:
+        return {
+            "size": self.size,
+            "width": self.width,
+            "price": self.price,
+            "list_price": self.list_price,
+            "available": self.available,
+            "variant_id": self.variant_id,
+            "link": self.link,
+        }
+
 
 @dataclass
 class HolabirdProduct:
@@ -47,13 +58,24 @@ class HolabirdProduct:
     retailer: str = "Holabird Sports"
 
     def to_dict(self) -> dict:
+        size_variants = [variant.to_dict() for variant in self.variants]
+        available_sizes = sorted(
+            {variant.size for variant in self.variants if variant.available and variant.size}
+        )
+        available_widths = sorted(
+            {variant.width for variant in self.variants if variant.available and variant.width}
+        )
         return {
             "brand": self.brand,
             "model": self.model,
             "price": self.price,
             "image": self.image,
             "link": self.link,
+            "gender": self.gender,
             "retailer": self.retailer,
+            "size_variants": size_variants,
+            "available_sizes": available_sizes,
+            "available_widths": available_widths,
         }
 
 
@@ -199,6 +221,40 @@ def _parse_variants(shopify_variants: list) -> list[ShoeVariant]:
             continue
 
     return variants
+
+
+def _variant_identity(variant: ShoeVariant) -> tuple[str, str, str]:
+    """Create a stable key for merging duplicate variant records."""
+    variant_id = variant.variant_id or ""
+    if variant_id:
+        return (variant_id, "", "")
+    return (variant.size.strip().lower(), variant.width.strip().lower(), variant.link.strip())
+
+
+def _merge_variants(existing: list[ShoeVariant], incoming: list[ShoeVariant]) -> list[ShoeVariant]:
+    """Merge variant lists while preserving the lowest price and any available stock flags."""
+    merged: dict[tuple[str, str, str], ShoeVariant] = {}
+
+    for variant in existing + incoming:
+        key = _variant_identity(variant)
+        current = merged.get(key)
+        if current is None:
+            merged[key] = variant
+            continue
+
+        current.available = current.available or variant.available
+        if variant.price and (not current.price or variant.price < current.price):
+            current.price = variant.price
+        if variant.list_price and (not current.list_price or variant.list_price < current.list_price):
+            current.list_price = variant.list_price
+        if not current.link and variant.link:
+            current.link = variant.link
+        if not current.width and variant.width:
+            current.width = variant.width
+        if not current.size and variant.size:
+            current.size = variant.size
+
+    return list(merged.values())
 
 
 def search_holabird(query: str, start: int = 0, items_per_page: int = 100) -> dict:
@@ -354,12 +410,18 @@ def scrape_holabird_all() -> list[HolabirdProduct]:
                 if key not in all_products:
                     all_products[key] = product
                 else:
+                    existing = all_products[key]
+                    existing.variants = _merge_variants(existing.variants, product.variants)
                     # Keep the one with lower price
                     try:
-                        existing_price = float(all_products[key].price.replace("$", ""))
+                        existing_price = float(existing.price.replace("$", ""))
                         new_price = float(product.price.replace("$", ""))
                         if new_price < existing_price:
                             all_products[key] = product
+                            all_products[key].variants = _merge_variants(
+                                existing.variants,
+                                product.variants,
+                            )
                     except ValueError:
                         pass
 

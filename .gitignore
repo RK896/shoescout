@@ -30,3 +30,10 @@ __pycache__/
 *.njsproj
 *.sln
 *.sw?
+
+# Project Documentation & Analysis
+launch_plan.md
+competitor_analysis.md
+feature_gap_analysis.md
+walkthrough.md
+task.md

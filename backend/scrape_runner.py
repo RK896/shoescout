@@ -26,6 +26,93 @@ def parse_price(price_str: str) -> float:
     return float(match.group()) if match else float('inf')
 
 
+def _coerce_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "available", "in_stock"}
+    return bool(value)
+
+
+def _normalize_variant_entry(raw_variant: dict) -> dict | None:
+    if not isinstance(raw_variant, dict):
+        return None
+
+    size = str(raw_variant.get("size", "")).strip()
+    if not size:
+        return None
+
+    return {
+        "size": size,
+        "width": str(raw_variant.get("width", "")).strip(),
+        "price": raw_variant.get("price", ""),
+        "list_price": raw_variant.get("list_price", ""),
+        "available": _coerce_bool(raw_variant.get("available", False)),
+        "variant_id": str(raw_variant.get("variant_id", "")).strip(),
+        "link": str(raw_variant.get("link", "")).strip(),
+    }
+
+
+def _variant_identity_key(variant: dict) -> tuple[str, ...]:
+    variant_id = variant.get("variant_id", "")
+    if variant_id:
+        return ("id", variant_id)
+    return (
+        "variant",
+        variant.get("size", "").lower(),
+        variant.get("width", "").lower(),
+        variant.get("link", ""),
+    )
+
+
+def _merge_variant_entries(existing_variants, incoming_variants) -> list[dict]:
+    merged: dict[tuple[str, ...], dict] = {}
+
+    for raw_variant in list(existing_variants or []) + list(incoming_variants or []):
+        normalized = _normalize_variant_entry(raw_variant)
+        if not normalized:
+            continue
+
+        key = _variant_identity_key(normalized)
+        current = merged.get(key)
+        if current is None:
+            merged[key] = normalized
+            continue
+
+        current["available"] = current["available"] or normalized["available"]
+        if parse_price(str(normalized["price"])) < parse_price(str(current["price"])):
+            current["price"] = normalized["price"]
+        if parse_price(str(normalized["list_price"])) < parse_price(str(current["list_price"])):
+            current["list_price"] = normalized["list_price"]
+        if not current["width"] and normalized["width"]:
+            current["width"] = normalized["width"]
+        if not current["link"] and normalized["link"]:
+            current["link"] = normalized["link"]
+
+    return list(merged.values())
+
+
+def _build_variant_metadata(incoming_shoe: dict, existing_shoe: dict | None = None) -> dict:
+    incoming_variants = incoming_shoe.get("size_variants") or incoming_shoe.get("variants") or []
+    if not incoming_variants:
+        return {}
+
+    existing_variants = []
+    if existing_shoe:
+        existing_variants = existing_shoe.get("size_variants") or existing_shoe.get("variants") or []
+
+    merged_variants = _merge_variant_entries(existing_variants, incoming_variants)
+    return {
+        "size_variants": merged_variants,
+        "available_sizes": sorted(
+            {variant["size"] for variant in merged_variants if variant.get("available") and variant.get("size")}
+        ),
+        "available_widths": sorted(
+            {variant["width"] for variant in merged_variants if variant.get("available") and variant.get("width")}
+        ),
+    }
+
+
 def add_shoes_to_db(shoes, collection):
     for shoe in shoes:
         shoe_model = shoe.get("model", "")
@@ -38,6 +125,7 @@ def add_shoes_to_db(shoes, collection):
         link = shoe.get("link", "")
 
         existing_shoe = collection.find_one({"model": shoe_model})
+        variant_metadata = _build_variant_metadata(shoe, existing_shoe)
         if existing_shoe:
             existing_retailer = None
             for retailer_entry in existing_shoe.get("retailers", []):
@@ -49,20 +137,31 @@ def add_shoes_to_db(shoes, collection):
                 existing_price_val = parse_price(existing_retailer.get("price", ""))
                 new_price_val = parse_price(price)
                 if new_price_val < existing_price_val:
+                    update_fields = {"retailers.$.price": price}
+                    if variant_metadata:
+                        update_fields.update(variant_metadata)
                     collection.update_one(
                         {"model": shoe_model, "retailers.retailer": retailer},
-                        {"$set": {"retailers.$.price": price}}
+                        {"$set": update_fields}
                     )
             else:
+                update_doc = {
+                    "$addToSet": {"retailers": {"retailer": retailer, "price": price, "link": link}}
+                }
+                if variant_metadata:
+                    update_doc["$set"] = variant_metadata
                 collection.update_one(
                     {"model": shoe_model},
-                    {"$addToSet": {"retailers": {"retailer": retailer, "price": price, "link": link}}}
+                    update_doc
                 )
         else:
+            set_fields = {"brand": brand, "model": shoe_model, "image": image}
+            if variant_metadata:
+                set_fields.update(variant_metadata)
             collection.update_one(
                 {"model": shoe_model},
                 {
-                    "$set": {"brand": brand, "model": shoe_model, "image": image},
+                    "$set": set_fields,
                     "$addToSet": {"retailers": {"retailer": retailer, "price": price, "link": link}}
                 },
                 upsert=True

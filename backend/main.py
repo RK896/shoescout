@@ -124,6 +124,212 @@ def parse_price(price_str: str) -> float:
     return float(match.group()) if match else float('inf')
 
 
+def _normalize_text(value) -> str:
+    """Normalize free-form text for comparisons."""
+    if value is None:
+        return ""
+    return re.sub(r"\s+", " ", str(value)).strip().lower()
+
+
+def _normalize_size_value(value) -> str:
+    """Normalize shoe sizes so common fractional formats compare cleanly."""
+    text = _normalize_text(value)
+    if not text:
+        return ""
+
+    text = text.replace("½", ".5").replace("¼", ".25").replace("¾", ".75")
+    text = re.sub(r"(\d+)\s*1/2\b", r"\1.5", text)
+    text = re.sub(r"(\d+)\s*1/4\b", r"\1.25", text)
+    text = re.sub(r"(\d+)\s*3/4\b", r"\1.75", text)
+    return text.replace(" ", "")
+
+
+def _normalize_width_value(value) -> str:
+    """Normalize width labels into a small set of comparable buckets."""
+    text = _normalize_text(value).replace(" ", "").replace("-", "")
+    if not text:
+        return "standard"
+
+    if text in {"d", "m", "regular", "medium", "std", "standard"}:
+        return "standard"
+    if text in {"wide", "w", "2e", "ee", "4e"} or "wide" in text or re.fullmatch(r"\d+e+", text):
+        return "wide"
+    if text in {"narrow", "b", "c", "aa"} or "narrow" in text:
+        return "narrow"
+    return text
+
+
+def _coerce_variant_dict(variant) -> Optional[dict]:
+    """Convert a variant-like object into a plain dict."""
+    if isinstance(variant, dict):
+        return dict(variant)
+    if hasattr(variant, "__dict__"):
+        return dict(vars(variant))
+    return None
+
+
+def _iter_shoe_variants(shoe: dict) -> list[dict]:
+    """Collect variant records from both top-level and retailer-level storage."""
+    variants: list[dict] = []
+    seen: set[tuple] = set()
+
+    def add_variant(raw_variant, retailer_name: str = "") -> None:
+        variant = _coerce_variant_dict(raw_variant)
+        if not variant:
+            return
+        if retailer_name and not variant.get("retailer"):
+            variant["retailer"] = retailer_name
+
+        signature = (
+            _normalize_size_value(variant.get("size")),
+            _normalize_width_value(variant.get("width")),
+            _normalize_text(variant.get("link")),
+            _normalize_text(variant.get("variant_id")),
+            _normalize_text(variant.get("retailer")),
+        )
+        if signature in seen:
+            return
+        seen.add(signature)
+        variants.append(variant)
+
+    for variant in shoe.get("size_variants", []) or []:
+        add_variant(variant)
+
+    for variant in shoe.get("variants", []) or []:
+        add_variant(variant)
+
+    for retailer in shoe.get("retailers", []) or []:
+        retailer_name = retailer.get("retailer", "")
+        for variant in retailer.get("variants", []) or []:
+            add_variant(variant, retailer_name=retailer_name)
+
+    return variants
+
+
+def _merge_variants(existing_variants, incoming_variants) -> list[dict]:
+    """Merge two variant lists while keeping order and removing duplicates."""
+    merged: list[dict] = []
+    seen: set[tuple] = set()
+
+    for raw_variant in list(existing_variants or []) + list(incoming_variants or []):
+        variant = _coerce_variant_dict(raw_variant)
+        if not variant:
+            continue
+
+        signature = (
+            _normalize_size_value(variant.get("size")),
+            _normalize_width_value(variant.get("width")),
+            _normalize_text(variant.get("link")),
+            _normalize_text(variant.get("variant_id")),
+            _normalize_text(variant.get("retailer")),
+        )
+        if signature in seen:
+            continue
+        seen.add(signature)
+        merged.append(variant)
+
+    return merged
+
+
+def _size_matches(size_filter: Optional[str], candidate_size) -> bool:
+    if not size_filter:
+        return True
+    return _normalize_size_value(size_filter) == _normalize_size_value(candidate_size)
+
+
+def _width_matches(width_filter: Optional[str], candidate_width) -> bool:
+    if not width_filter:
+        return True
+    return _normalize_width_value(width_filter) == _normalize_width_value(candidate_width)
+
+
+def _shoe_matches_variant_filters(shoe: dict, size: Optional[str] = None, width: Optional[str] = None) -> bool:
+    """Return True when any stored variant satisfies the requested size/width."""
+    if not size and not width:
+        return True
+
+    variants = _iter_shoe_variants(shoe)
+    if not variants:
+        available_sizes = {_normalize_size_value(s) for s in shoe.get("available_sizes", []) or []}
+        available_widths = {_normalize_width_value(w) for w in shoe.get("available_widths", []) or []}
+
+        if size and width:
+            return _normalize_size_value(size) in available_sizes and _normalize_width_value(width) in available_widths
+        if size:
+            return _normalize_size_value(size) in available_sizes
+        if width:
+            return _normalize_width_value(width) in available_widths
+        return False
+
+    for variant in variants:
+        if _size_matches(size, variant.get("size")) and _width_matches(width, variant.get("width")):
+            return True
+
+    return False
+
+
+def _variant_metadata(shoe: dict) -> tuple[list[str], list[str]]:
+    """Extract lightweight size/width metadata for API responses."""
+    variants = _iter_shoe_variants(shoe)
+    sizes: list[str] = []
+    widths: list[str] = []
+    seen_sizes: set[str] = set()
+    seen_widths: set[str] = set()
+
+    for variant in variants:
+        size = variant.get("size")
+        size_key = _normalize_size_value(size)
+        if size and size_key and size_key not in seen_sizes:
+            seen_sizes.add(size_key)
+            sizes.append(str(size).strip())
+
+        width = variant.get("width")
+        width_key = _normalize_width_value(width)
+        if width_key and width_key not in seen_widths:
+            seen_widths.add(width_key)
+            if width_key == "standard":
+                widths.append("Standard")
+            elif width_key == "wide":
+                widths.append("Wide")
+            elif width_key == "narrow":
+                widths.append("Narrow")
+            else:
+                widths.append(str(width).strip() if width else "Standard")
+
+    if not sizes and shoe.get("available_sizes"):
+        sizes = [str(size).strip() for size in shoe.get("available_sizes", []) if str(size).strip()]
+    if not widths and shoe.get("available_widths"):
+        widths = [str(width).strip() for width in shoe.get("available_widths", []) if str(width).strip()]
+
+    return sizes, widths
+
+
+def _prepare_shoe_response(shoe: dict, discount_threshold: float = 5.0) -> dict:
+    """Add derived fields and remove heavyweight properties before responding."""
+    shoe = dict(shoe)
+
+    discount_info = _calculate_shoe_discount(shoe, minimum_discount=discount_threshold)
+    if discount_info:
+        shoe["discount_pct"] = discount_info["discount_percent"]
+        shoe["average_price"] = discount_info["average_price"]
+
+    sizes, widths = _variant_metadata(shoe)
+    if sizes:
+        shoe["available_sizes"] = sizes
+    if widths:
+        shoe["available_widths"] = widths
+
+    shoe.pop("price_history", None)
+
+    if "embeddings" in shoe and shoe["embeddings"] is not None:
+        if hasattr(shoe["embeddings"], "tolist"):
+            shoe["embeddings"] = shoe["embeddings"].tolist()
+        elif not isinstance(shoe["embeddings"], list):
+            shoe["embeddings"] = list(shoe["embeddings"])
+
+    return shoe
+
+
 @app.get("/")
 def read_root():
     return {"message": "ShoeScout API is live!"}
@@ -193,13 +399,18 @@ def get_shoes(
     brand: Optional[str] = Query(None),
     retailer: Optional[str] = Query(None),
     gender: Optional[str] = Query(None, description="mens or womens"),
-    category: Optional[str] = Query(None, description="road or trail")
+    category: Optional[str] = Query(None, description="road or trail"),
+    size: Optional[str] = Query(None, description="Match shoes with this size in stored variants"),
+    width: Optional[str] = Query(None, description="Match shoes with this width in stored variants"),
+    min_discount: Optional[float] = Query(None, ge=0, le=100, description="Minimum discount percentage")
 ):
-    """Paginated list of shoes with optional brand, retailer, gender, and category filters."""
+    """Paginated list of shoes with optional brand, retailer, gender, category, size, width, and discount filters."""
     try:
         collection = get_collection()
         skip = (page - 1) * limit
-        
+        size_filter = size.strip() if size and size.strip() else None
+        width_filter = width.strip() if width and width.strip() else None
+
         query = {}
         if brand:
             query["brand"] = brand
@@ -213,24 +424,30 @@ def get_shoes(
             elif gender.lower() == "womens":
                 query["gender"] = {"$regex": "^Women", "$options": "i"}
 
-        total_count = collection.count_documents(query)
-        shoes = list(collection.find(query, {"_id": 0}).skip(skip).limit(limit))
+        needs_full_filter = bool(size_filter or width_filter or min_discount is not None)
 
-        # Ensure all embeddings are lists (not numpy arrays) for JSON serialization
-        for shoe in shoes:
-            # Calculate discount
-            discount_info = _calculate_shoe_discount(shoe)
-            if discount_info:
-                shoe["discount_pct"] = discount_info["discount_percent"]
-                shoe["average_price"] = discount_info["average_price"]
+        if needs_full_filter:
+            shoes = list(collection.find(query, {"_id": 0}))
+            filtered_shoes = []
+            response_discount_threshold = min_discount if min_discount is not None else 5.0
+            for shoe in shoes:
+                if not _shoe_matches_variant_filters(shoe, size=size_filter, width=width_filter):
+                    continue
 
-            shoe.pop("price_history", None) # Privacy/Performance: strip history from bulk list
+                if min_discount is not None:
+                    discount_info = _calculate_shoe_discount(shoe)
+                    if not discount_info or discount_info["discount_percent"] < min_discount:
+                        continue
+                filtered_shoes.append(_prepare_shoe_response(shoe, discount_threshold=response_discount_threshold))
 
-            if "embeddings" in shoe and shoe["embeddings"] is not None:
-                if hasattr(shoe["embeddings"], 'tolist'):
-                    shoe["embeddings"] = shoe["embeddings"].tolist()
-                elif not isinstance(shoe["embeddings"], list):
-                    shoe["embeddings"] = list(shoe["embeddings"])
+            total_count = len(filtered_shoes)
+            shoes = filtered_shoes[skip:skip + limit]
+        else:
+            total_count = collection.count_documents(query)
+            shoes = list(collection.find(query, {"_id": 0}).skip(skip).limit(limit))
+
+            # Ensure all embeddings are lists (not numpy arrays) for JSON serialization
+            shoes = [_prepare_shoe_response(shoe) for shoe in shoes]
 
         # Generate embeddings in batch for shoes that don't have them yet.
         # Cap at 100 per call so they accumulate over time without blocking the request.
@@ -430,6 +647,9 @@ def add_shoes_to_db(shoes, db):
         if not shoe_model or not shoe_model.strip():
             continue
 
+        existing_shoe = collection.find_one({"model": shoe_model})
+        variant_metadata = _build_variant_metadata(shoe, existing_shoe)
+
         # Create price history entry
         price_snapshot = {
             "retailer": retailer,
@@ -438,7 +658,6 @@ def add_shoes_to_db(shoes, db):
             "timestamp": timestamp
         }
 
-        existing_shoe = collection.find_one({"model": shoe_model})
         if existing_shoe:
             existing_retailer = None
             for retailer_entry in existing_shoe.get("retailers", []):
@@ -451,22 +670,28 @@ def add_shoes_to_db(shoes, db):
                 existing_price_val = parse_price(existing_retailer.get("price", ""))
                 new_price_val = parse_price(price)
                 if new_price_val < existing_price_val:
+                    update_fields = {"retailers.$.price": price}
+                    if variant_metadata:
+                        update_fields.update(variant_metadata)
                     collection.update_one(
                         {"model": shoe_model, "retailers.retailer": retailer},
-                        {"$set": {"retailers.$.price": price}}
+                        {"$set": update_fields}
                     )
             else:
-                collection.update_one(
-                    {"model": shoe_model},
-                    {
-                        "$addToSet": {
-                            "retailers": {
-                                "retailer": retailer,
-                                "price": price,
-                                "link": link
-                            }
+                update_doc = {
+                    "$addToSet": {
+                        "retailers": {
+                            "retailer": retailer,
+                            "price": price,
+                            "link": link
                         }
                     }
+                }
+                if variant_metadata:
+                    update_doc["$set"] = variant_metadata
+                collection.update_one(
+                    {"model": shoe_model},
+                    update_doc
                 )
             # Always append to price history
             collection.update_one(
@@ -474,16 +699,19 @@ def add_shoes_to_db(shoes, db):
                 {"$push": {"price_history": price_snapshot}}
             )
         else:
+            set_fields = {
+                "brand": brand,
+                "model": shoe_model,
+                "image": image,
+                "gender": shoe.get("gender"),
+                "category": shoe.get("category")
+            }
+            if variant_metadata:
+                set_fields.update(variant_metadata)
             collection.update_one(
                 {"model": shoe_model},
                 {
-                    "$set": {
-                        "brand": brand,
-                        "model": shoe_model,
-                        "image": image,
-                        "gender": shoe.get("gender"),
-                        "category": shoe.get("category")
-                    },
+                    "$set": set_fields,
                     "$addToSet": {
                         "retailers": {
                             "retailer": retailer,
@@ -497,6 +725,93 @@ def add_shoes_to_db(shoes, db):
                 },
                 upsert=True
             )
+
+
+def _coerce_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "available", "in_stock"}
+    return bool(value)
+
+
+def _normalize_variant_entry(raw_variant: dict) -> Optional[dict]:
+    if not isinstance(raw_variant, dict):
+        return None
+
+    size = str(raw_variant.get("size", "")).strip()
+    if not size:
+        return None
+
+    return {
+        "size": size,
+        "width": str(raw_variant.get("width", "")).strip(),
+        "price": raw_variant.get("price", ""),
+        "list_price": raw_variant.get("list_price", ""),
+        "available": _coerce_bool(raw_variant.get("available", False)),
+        "variant_id": str(raw_variant.get("variant_id", "")).strip(),
+        "link": str(raw_variant.get("link", "")).strip(),
+    }
+
+
+def _variant_identity_key(variant: dict) -> tuple[str, ...]:
+    variant_id = variant.get("variant_id", "")
+    if variant_id:
+        return ("id", variant_id)
+    return (
+        "variant",
+        variant.get("size", "").lower(),
+        variant.get("width", "").lower(),
+        variant.get("link", ""),
+    )
+
+
+def _merge_variant_entries(existing_variants, incoming_variants) -> list[dict]:
+    merged: dict[tuple[str, ...], dict] = {}
+
+    for raw_variant in list(existing_variants or []) + list(incoming_variants or []):
+        normalized = _normalize_variant_entry(raw_variant)
+        if not normalized:
+            continue
+
+        key = _variant_identity_key(normalized)
+        current = merged.get(key)
+        if current is None:
+            merged[key] = normalized
+            continue
+
+        current["available"] = current["available"] or normalized["available"]
+        if parse_price(str(normalized["price"])) < parse_price(str(current["price"])):
+            current["price"] = normalized["price"]
+        if parse_price(str(normalized["list_price"])) < parse_price(str(current["list_price"])):
+            current["list_price"] = normalized["list_price"]
+        if not current["width"] and normalized["width"]:
+            current["width"] = normalized["width"]
+        if not current["link"] and normalized["link"]:
+            current["link"] = normalized["link"]
+
+    return list(merged.values())
+
+
+def _build_variant_metadata(incoming_shoe: dict, existing_shoe: Optional[dict] = None) -> dict:
+    incoming_variants = incoming_shoe.get("size_variants") or incoming_shoe.get("variants") or []
+    if not incoming_variants:
+        return {}
+
+    existing_variants = []
+    if existing_shoe:
+        existing_variants = existing_shoe.get("size_variants") or existing_shoe.get("variants") or []
+
+    merged_variants = _merge_variant_entries(existing_variants, incoming_variants)
+    return {
+        "size_variants": merged_variants,
+        "available_sizes": sorted(
+            {variant["size"] for variant in merged_variants if variant.get("available") and variant.get("size")}
+        ),
+        "available_widths": sorted(
+            {variant["width"] for variant in merged_variants if variant.get("available") and variant.get("width")}
+        ),
+    }
 
 
 @app.delete("/reviews")
@@ -664,7 +979,7 @@ def get_price_history(shoe_model: str):
     }
 
 
-def _calculate_shoe_discount(shoe: dict) -> Optional[dict]:
+def _calculate_shoe_discount(shoe: dict, minimum_discount: float = 0.0) -> Optional[dict]:
     """
     Helper to calculate best discount % based on price history.
     Returns a dict with discount_pct, current_price, and average_price or None.
@@ -706,7 +1021,7 @@ def _calculate_shoe_discount(shoe: dict) -> Optional[dict]:
                         current_price = current_price_val
                         avg_price = historical_avg
 
-    if best_discount >= 5.0:  # Only report if at least 5% off
+    if best_discount >= minimum_discount:
         return {
             "retailer": best_retailer,
             "current_price": current_price,
