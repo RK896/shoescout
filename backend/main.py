@@ -344,6 +344,24 @@ def health_check():
         return {"status": "unhealthy", "database": "disconnected", "error": str(e)}
 
 
+@app.get("/admin/status")
+def scraper_status(x_admin_key: str = Header(None)):
+    admin_key = os.getenv("ADMIN_KEY", "")
+    if not admin_key or x_admin_key != admin_key:
+        raise HTTPException(status_code=403, detail="Forbidden: invalid or missing admin key")
+    try:
+        runs_coll = get_db()["scraper_runs"]
+        latest = list(runs_coll.find({}, {"_id": 0}).sort("started_at", -1).limit(50))
+        by_scraper: dict = {}
+        for run in latest:
+            name = run.get("scraper")
+            if name and name not in by_scraper:
+                by_scraper[name] = run
+        return {"scrapers": list(by_scraper.values())}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # Note: db and collection are now lazily initialized via get_db() and get_collection()
 
 # Create MongoDB indexes for performance (called lazily on first request)

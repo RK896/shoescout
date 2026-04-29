@@ -11,6 +11,7 @@ Scrapers:
 import os
 import re
 import importlib
+from datetime import datetime, timezone
 from pymongo import MongoClient
 from pymongo.server_api import ServerApi
 from dotenv import load_dotenv
@@ -198,15 +199,36 @@ def run_all_scrapers():
         ("Fleet Feet", "scraper.fleetfeet", "scrape_fleetfeet"),
     ]
 
+    runs_coll = db["scraper_runs"]
+
     for name, module_path, func_name in scrapers:
+        started_at = datetime.now(timezone.utc)
         try:
             module = importlib.import_module(module_path)
             func = getattr(module, func_name)
             shoes = func()
+            finished_at = datetime.now(timezone.utc)
             print(f"{name}: scraped {len(shoes)} shoes")
             all_shoes.extend(shoes)
+            runs_coll.insert_one({
+                "scraper": name,
+                "status": "success",
+                "count": len(shoes),
+                "started_at": started_at,
+                "finished_at": finished_at,
+                "error": None,
+            })
         except Exception as e:
+            finished_at = datetime.now(timezone.utc)
             print(f"{name} scraper failed: {e}")
+            runs_coll.insert_one({
+                "scraper": name,
+                "status": "error",
+                "count": 0,
+                "started_at": started_at,
+                "finished_at": finished_at,
+                "error": str(e),
+            })
 
     add_shoes_to_db(all_shoes, collection)
     print(f"\nTotal scraped: {len(all_shoes)} shoes stored/updated in MongoDB")

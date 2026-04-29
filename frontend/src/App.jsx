@@ -1361,6 +1361,68 @@ function FilterSidebar({
   );
 }
 
+function PrivacyPage({ onBack }) {
+  return (
+    <div className="legal-page">
+      <button className="legal-back" onClick={onBack}>← Back</button>
+      <h1>Privacy Policy</h1>
+      <p className="legal-updated">Last updated: April 2026</p>
+
+      <h2>What we collect</h2>
+      <p>When you sign up for price-drop alerts, we collect your <strong>email address</strong> and the shoe model and target price you specify. We do not collect any other personal information.</p>
+
+      <h2>How we use it</h2>
+      <p>Your email address is used solely to send you price-drop alert notifications for the shoes you subscribed to. We do not send marketing emails, and we do not sell or share your email with third parties.</p>
+
+      <h2>Data storage</h2>
+      <p>Alert subscriptions are stored in MongoDB Atlas (cloud database). Each alert record contains your email, the shoe model, your target price, and whether the alert is active. Price history data and shoe catalog data contain no personal information.</p>
+
+      <h2>Your rights</h2>
+      <p>You can unsubscribe from any alert at any time using the unsubscribe link included in every alert email, or by contacting us. Upon request, we will delete all data associated with your email address.</p>
+
+      <h2>Cookies</h2>
+      <p>ShoeScout does not use cookies or tracking pixels. We do not run analytics or advertising scripts.</p>
+
+      <h2>Third-party services</h2>
+      <p>ShoeScout aggregates publicly available pricing information from third-party retailer websites. We are not affiliated with any retailer. Links to retailer sites are provided for convenience; their own privacy policies apply once you leave ShoeScout.</p>
+
+      <h2>Contact</h2>
+      <p>For privacy questions or data deletion requests, contact us at <a href="mailto:rk999@njit.edu">rk999@njit.edu</a>.</p>
+    </div>
+  );
+}
+
+function TermsPage({ onBack }) {
+  return (
+    <div className="legal-page">
+      <button className="legal-back" onClick={onBack}>← Back</button>
+      <h1>Terms of Service</h1>
+      <p className="legal-updated">Last updated: April 2026</p>
+
+      <h2>Service description</h2>
+      <p>ShoeScout is a free price-aggregation tool that collects and displays publicly available pricing data from running shoe retailers. We provide AI-powered search, community reviews, and price-drop alert subscriptions.</p>
+
+      <h2>No warranties</h2>
+      <p>Price and availability information is provided "as is" and may be delayed or inaccurate. ShoeScout makes no guarantee that prices shown are current or accurate. Always verify pricing directly on the retailer's website before purchasing.</p>
+
+      <h2>Affiliate disclosure</h2>
+      <p>ShoeScout may earn affiliate commissions from purchases made through links on this site. This does not affect the prices shown or our editorial coverage of shoes.</p>
+
+      <h2>Acceptable use</h2>
+      <p>You may not use ShoeScout to scrape, republish, or resell our data. You may not attempt to circumvent rate limits or access admin endpoints without authorization. Automated access without permission is prohibited.</p>
+
+      <h2>Limitation of liability</h2>
+      <p>ShoeScout is not liable for any purchase decisions made based on information provided on this site. We are not responsible for retailer pricing errors, out-of-stock items, or changes in product availability.</p>
+
+      <h2>Changes</h2>
+      <p>We may update these terms at any time. Continued use of ShoeScout after changes constitutes acceptance of the updated terms.</p>
+
+      <h2>Contact</h2>
+      <p>Questions about these terms? Contact us at <a href="mailto:rk999@njit.edu">rk999@njit.edu</a>.</p>
+    </div>
+  );
+}
+
 function App() {
   const [searchTerm, setSearchTerm] = useState("");
   const [shoes, setShoes] = useState([]);
@@ -1368,6 +1430,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [showChat, setShowChat] = useState(false);
+  const [currentView, setCurrentView] = useState("main");
   const debounceRef = useRef(null);
 
   // Pagination state
@@ -1746,6 +1809,9 @@ function App() {
     );
   };
 
+  if (currentView === "privacy") return <PrivacyPage onBack={() => setCurrentView("main")} />;
+  if (currentView === "terms") return <TermsPage onBack={() => setCurrentView("main")} />;
+
   return (
     <div className="app">
       <div className="header">
@@ -1938,6 +2004,14 @@ function App() {
       >
         🤖 Ask AI
       </button>
+
+      <footer className="site-footer">
+        <span>© {new Date().getFullYear()} ShoeScout</span>
+        <span className="site-footer-sep">·</span>
+        <button className="site-footer-link" onClick={() => setCurrentView("privacy")}>Privacy Policy</button>
+        <span className="site-footer-sep">·</span>
+        <button className="site-footer-link" onClick={() => setCurrentView("terms")}>Terms of Service</button>
+      </footer>
     </div>
   );
 }
