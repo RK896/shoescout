@@ -182,9 +182,6 @@ def _is_kids_shoe(name: str, brand: str) -> bool:
     return False
 
 
-    return "Unisex"
-
-
 def _infer_gender(name: str, link: str) -> str:
     """
     Infer gender from product name or URL.
@@ -354,7 +351,6 @@ def parse_zappos_response(response: dict) -> list[ZapposProduct]:
                 link=link,
                 gender=gender,
                 category=_infer_category(name, link),
-                retailer=retailer,
             ))
 
         except Exception as e:

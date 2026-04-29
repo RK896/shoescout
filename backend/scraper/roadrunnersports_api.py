@@ -231,10 +231,50 @@ def scrape_category_page(url: str, page: int = 0) -> tuple[list[RoadRunnerProduc
         print(f"Error parsing __NEXT_DATA__: {e}")
         return [], 0
 
-    # Navigate to search results
+    # Try multiple paths — RRS has changed their state structure over time
+    results = []
+    total_count = 0
+
+    # Path 1: original props.initialState.search
     search = data.get("props", {}).get("initialState", {}).get("search", {})
-    results = search.get("results", [])
-    total_count = search.get("totalSearchCount", 0)
+    if search.get("results"):
+        results = search["results"]
+        total_count = search.get("totalSearchCount", 0)
+
+    # Path 2: props.pageProps (Next.js standard)
+    if not results:
+        page_props = data.get("props", {}).get("pageProps", {})
+        for key in ("products", "items", "results", "searchResults"):
+            candidate = page_props.get(key, [])
+            if isinstance(candidate, list) and candidate:
+                results = candidate
+                total_count = page_props.get("totalCount", page_props.get("total", len(candidate)))
+                break
+        if not results and isinstance(page_props.get("searchResults"), dict):
+            sr = page_props["searchResults"]
+            results = sr.get("products", sr.get("results", []))
+            total_count = sr.get("totalCount", sr.get("total", 0))
+
+    # Path 3: deep search for any list with brand/price/description structure
+    if not results:
+        def _find_product_list(obj, depth=0):
+            if depth > 6 or not isinstance(obj, (dict, list)):
+                return None
+            if isinstance(obj, list) and len(obj) > 2:
+                sample = obj[0] if obj else {}
+                if isinstance(sample, dict) and any(k in sample for k in ("brand", "description", "price", "sku")):
+                    return obj
+            if isinstance(obj, dict):
+                for v in obj.values():
+                    found = _find_product_list(v, depth + 1)
+                    if found:
+                        return found
+            return None
+        results = _find_product_list(data) or []
+        total_count = len(results)
+
+    if not results:
+        print("  No product data found in __NEXT_DATA__")
 
     for item in results:
         try:

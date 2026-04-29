@@ -47,7 +47,21 @@ class OnProduct:
 
 
 BASE_URL = "https://www.on.com"
-SITEMAP_URL = f"{BASE_URL}/en-us/products.xml"
+
+# Try these sitemaps in order
+SITEMAP_URLS = [
+    f"{BASE_URL}/en-us/products.xml",
+    f"{BASE_URL}/sitemap.xml",
+    f"{BASE_URL}/en-us/sitemap.xml",
+]
+
+# Category pages to fall back to if sitemap finds nothing
+CATEGORY_URLS = [
+    f"{BASE_URL}/en-us/running/men/shoes",
+    f"{BASE_URL}/en-us/running/women/shoes",
+    f"{BASE_URL}/en-us/men/running/shoes",
+    f"{BASE_URL}/en-us/women/running/shoes",
+]
 
 # Running shoe model keywords (all lowercase)
 RUNNING_SHOE_KEYWORDS = [
@@ -56,7 +70,7 @@ RUNNING_SHOE_KEYWORDS = [
     "cloudrunner", "cloudvista", "cloudventure", "cloudultra",
     "cloudgo", "cloudeclipse", "cloudsurfer", "cloudtilt",
     "cloudswift", "cloudrush", "cloudace", "cloudflyer",
-    "cloudspike", "cloudzone", "cloudhero",
+    "cloudspike", "cloudzone", "cloudhero", "cloud",
 ]
 
 # Global session
@@ -92,40 +106,68 @@ def fetch_sitemap() -> list[str]:
     """
     Fetch product URLs from ON Running sitemap.
 
-    Returns:
-        List of product page URLs
+    Tries multiple sitemap URLs and handles sitemap index files.
+    Returns list of product page URLs.
     """
     session = _get_session()
+    all_urls: list[str] = []
 
-    try:
-        response = session.get(SITEMAP_URL, timeout=60)
-        response.raise_for_status()
-    except requests.RequestException as e:
-        print(f"Error fetching sitemap: {e}")
-        return []
+    for sitemap_url in SITEMAP_URLS:
+        try:
+            response = session.get(sitemap_url, timeout=60)
+            response.raise_for_status()
+        except requests.RequestException as e:
+            print(f"  Sitemap {sitemap_url} failed: {e}")
+            continue
 
-    # Extract all product URLs
-    urls = re.findall(r'<loc>(https://www.on.com/en-us/products/[^<]+)</loc>', response.text)
-    return urls
+        content = response.text
+
+        # If it's a sitemap index, find product sub-sitemaps
+        if "<sitemapindex" in content:
+            sub_urls = re.findall(r'<loc>(https://www\.on\.com[^<]*)</loc>', content)
+            for sub_url in sub_urls:
+                if "product" in sub_url.lower() or "shop" in sub_url.lower():
+                    try:
+                        sub_resp = session.get(sub_url, timeout=60)
+                        sub_resp.raise_for_status()
+                        found = re.findall(r'<loc>(https://www\.on\.com/en-us/[^<]+)</loc>', sub_resp.text)
+                        all_urls.extend(found)
+                    except requests.RequestException:
+                        pass
+            if all_urls:
+                print(f"  Found {len(all_urls)} URLs from sitemap index")
+                return all_urls
+        else:
+            # Try product URL patterns from most to least specific
+            for pattern in [
+                r'<loc>(https://www\.on\.com/en-us/products/[^<]+)</loc>',
+                r'<loc>(https://www\.on\.com/en-us/[^<]+-shoes[^<]*)</loc>',
+                r'<loc>(https://www\.on\.com/en-us/[^<]+)</loc>',
+            ]:
+                found = re.findall(pattern, content)
+                if found:
+                    print(f"  Found {len(found)} URLs from {sitemap_url}")
+                    return found
+
+    return all_urls
 
 
 def filter_running_shoes(urls: list[str]) -> list[str]:
     """
-    Filter URLs to only include running shoes.
+    Filter URLs to only include running shoe pages.
 
-    Args:
-        urls: List of product URLs
-
-    Returns:
-        Filtered list of running shoe URLs
+    Accepts URLs containing "shoes" (with or without dashes) and
+    at least one Cloud model keyword.
     """
     running_shoes = []
     for url in urls:
         url_lower = url.lower()
-        # Must contain "shoes" and a running shoe keyword
-        if "-shoes-" in url_lower:
-            if any(kw in url_lower for kw in RUNNING_SHOE_KEYWORDS):
-                running_shoes.append(url)
+        # Accept URLs that contain "shoes" anywhere
+        if "shoe" not in url_lower:
+            continue
+        # Must also contain a running shoe keyword
+        if any(kw in url_lower for kw in RUNNING_SHOE_KEYWORDS):
+            running_shoes.append(url)
     return running_shoes
 
 
@@ -312,6 +354,21 @@ def parse_product(data: dict) -> Optional[OnProduct]:
     )
 
 
+def _extract_urls_from_category_page(url: str) -> list[str]:
+    """Extract product URLs from an ON Running category page."""
+    session = _get_session()
+    try:
+        resp = session.get(url, timeout=30)
+        resp.raise_for_status()
+    except requests.RequestException:
+        return []
+
+    # Look for product links in the HTML
+    found = re.findall(r'href="(/en-us/[^"]*shoes[^"]*)"', resp.text)
+    urls = [f"{BASE_URL}{path}" for path in found if "cloud" in path.lower()]
+    return list(set(urls))
+
+
 def scrape_on_products(max_models: int = 100, workers: int = 5) -> list[OnProduct]:
     """
     Scrape running shoes from ON Running.
@@ -326,6 +383,15 @@ def scrape_on_products(max_models: int = 100, workers: int = 5) -> list[OnProduc
     print("Fetching ON Running sitemap...")
     all_urls = fetch_sitemap()
     print(f"  Found {len(all_urls)} total product URLs")
+
+    # If sitemap yielded nothing, try category pages directly
+    if not all_urls:
+        print("  Sitemap empty — trying category pages...")
+        for cat_url in CATEGORY_URLS:
+            cat_urls = _extract_urls_from_category_page(cat_url)
+            all_urls.extend(cat_urls)
+            print(f"  {cat_url}: {len(cat_urls)} URLs")
+        print(f"  Category pages total: {len(all_urls)} URLs")
 
     # Filter for running shoes
     running_urls = filter_running_shoes(all_urls)

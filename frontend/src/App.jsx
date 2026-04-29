@@ -504,11 +504,12 @@ function PriceHistoryChart({ shoeModel }) {
   );
 }
 
-function SimilarShoes({ shoeModel }) {
+function SimilarShoes({ shoeModel, onSelectShoe }) {
   const [similar, setSimilar] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    setLoading(true);
     fetch(`${API_BASE_URL}/shoes/${encodeURIComponent(shoeModel)}/similar?limit=4`)
       .then((res) => res.json())
       .then((data) => {
@@ -526,7 +527,13 @@ function SimilarShoes({ shoeModel }) {
       <h4>Similar Shoes</h4>
       <div className="similar-shoes-grid">
         {similar.map((s) => (
-          <div key={s.model} className="similar-shoe-card">
+          <div
+            key={s.model}
+            className="similar-shoe-card"
+            onClick={() => onSelectShoe?.(s)}
+            style={{ cursor: onSelectShoe ? "pointer" : "default" }}
+            title={`View ${s.model}`}
+          >
             <ShoeImage src={s.image} alt={s.model} />
             <span className="similar-shoe-name">{s.model}</span>
             <span className="similar-shoe-price">
@@ -668,34 +675,41 @@ function PriceAlertModal({ shoe, onClose }) {
 }
 
 function ShoeCard({ shoe, onCompareToggle, isCompareSelected, compareCount }) {
-  const [reviews, setReviews] = useState(null); // null = not loaded yet
+  const [reviews, setReviews] = useState(null);
   const [loadingReviews, setLoadingReviews] = useState(false);
   const [showReviews, setShowReviews] = useState(false);
   const [bestForTags, setBestForTags] = useState([]);
   const [showAlertModal, setShowAlertModal] = useState(false);
+  const [popoutShoe, setPopoutShoe] = useState(shoe);
 
-  // Lazy: only fetch reviews when the user clicks the reviews button
+  const fetchReviews = useCallback((shoeModel) => {
+    setLoadingReviews(true);
+    setReviews(null);
+    fetch(`${API_BASE_URL}/reviews?shoe_model=${encodeURIComponent(shoeModel)}`)
+      .then((res) => res.json())
+      .then((data) => {
+        const reviewData = Array.isArray(data) ? data : [];
+        setReviews(reviewData);
+        setBestForTags(extractBestForTags(reviewData));
+        setLoadingReviews(false);
+      })
+      .catch(() => {
+        setReviews([]);
+        setLoadingReviews(false);
+      });
+  }, []);
+
   const handleOpenReviews = useCallback(() => {
     if (reviews === null && !loadingReviews) {
-      setLoadingReviews(true);
-      fetch(`${API_BASE_URL}/reviews?shoe_model=${encodeURIComponent(shoe.model)}`)
-        .then((res) => res.json())
-        .then((data) => {
-          const reviewData = Array.isArray(data) ? data : [];
-          setReviews(reviewData);
-          // Extract "Best for" tags from reviews
-          const tags = extractBestForTags(reviewData);
-          setBestForTags(tags);
-          setLoadingReviews(false);
-        })
-        .catch((err) => {
-          console.error("Failed to fetch reviews:", err);
-          setReviews([]);
-          setLoadingReviews(false);
-        });
+      fetchReviews(popoutShoe.model);
     }
     setShowReviews(true);
-  }, [shoe.model, reviews, loadingReviews]);
+  }, [popoutShoe.model, reviews, loadingReviews, fetchReviews]);
+
+  const handleSelectSimilarShoe = useCallback((similarShoe) => {
+    setPopoutShoe(similarShoe);
+    fetchReviews(similarShoe.model);
+  }, [fetchReviews]);
 
   // Extract best-for tags from review text
   function extractBestForTags(reviewData) {
@@ -731,9 +745,13 @@ function ShoeCard({ shoe, onCompareToggle, isCompareSelected, compareCount }) {
   return (
     <>
       <div className="shoe-card-wrapper">
-        <div className={`shoe-card ${isCompareSelected ? "shoe-card--selected" : ""}`}>
+        <div
+          className={`shoe-card ${isCompareSelected ? "shoe-card--selected" : ""}`}
+          onClick={handleOpenReviews}
+          style={{ cursor: "pointer" }}
+        >
           {/* Compare checkbox */}
-          <label className="compare-checkbox">
+          <label className="compare-checkbox" onClick={(e) => e.stopPropagation()}>
             <input
               type="checkbox"
               checked={isCompareSelected}
@@ -778,16 +796,22 @@ function ShoeCard({ shoe, onCompareToggle, isCompareSelected, compareCount }) {
           <ul>
             {shoe.retailers.map((r, i) => (
               <li key={i}>
-                <strong>{r.retailer}</strong>: {r.price}
-                {" — "}
-                <a href={r.link} target="_blank" rel="noopener noreferrer" className="buy-button">
-                  Buy
-                </a>
+                <strong>{r.retailer}</strong>
+                <span className="retailer-price-group">
+                  <span className="retailer-price">{r.price}</span>
+                  <a
+                    href={r.link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="buy-button"
+                    onClick={(e) => e.stopPropagation()}
+                  >Buy</a>
+                </span>
               </li>
             ))}
           </ul>
 
-          <div className="shoe-card-buttons">
+          <div className="shoe-card-buttons" onClick={(e) => e.stopPropagation()}>
             <button
               className="reviews-toggle-button"
               onClick={handleOpenReviews}
@@ -832,22 +856,22 @@ function ShoeCard({ shoe, onCompareToggle, isCompareSelected, compareCount }) {
 
             <div className="reviews-popout-left">
               <div className="shoe-card reviews-popout-card">
-                <ShoeImage src={shoe.image} alt={shoe.model} />
-                <h2>{shoe.model}</h2>
-                <p><span className="brand-name">{shoe.brand}</span></p>
+                <ShoeImage src={popoutShoe.image} alt={popoutShoe.model} />
+                <h2>{popoutShoe.model}</h2>
+                <p><span className="brand-name">{popoutShoe.brand}</span></p>
                 <span className="retailers">Retailers</span>
                 <ul>
-                  {shoe.retailers.map((r, i) => (
+                  {popoutShoe.retailers.map((r, i) => (
                     <li key={i}>
-                      <strong>{r.retailer}</strong>: {r.price}
-                      {" — "}
-                      <a href={r.link} target="_blank" rel="noopener noreferrer" className="buy-button">
-                        Buy
-                      </a>
+                      <strong>{r.retailer}</strong>
+                      <span className="retailer-price-group">
+                        <span className="retailer-price">{r.price}</span>
+                        <a href={r.link} target="_blank" rel="noopener noreferrer" className="buy-button">Buy</a>
+                      </span>
                     </li>
                   ))}
                 </ul>
-                <PriceHistoryChart shoeModel={shoe.model} />
+                <PriceHistoryChart shoeModel={popoutShoe.model} />
               </div>
             </div>
 
@@ -899,7 +923,7 @@ function ShoeCard({ shoe, onCompareToggle, isCompareSelected, compareCount }) {
                   ))}
                 </ul>
               )}
-              <SimilarShoes shoeModel={shoe.model} />
+              <SimilarShoes shoeModel={popoutShoe.model} onSelectShoe={handleSelectSimilarShoe} />
             </div>
           </div>
         </div>

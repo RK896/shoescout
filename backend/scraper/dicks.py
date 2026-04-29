@@ -47,15 +47,18 @@ class DicksProduct:
 
 # Required headers for the API
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
-    "Accept": "application/json",
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
     "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
     "Origin": "https://www.dickssportinggoods.com",
     "Referer": "https://www.dickssportinggoods.com/",
     "channel": "dsg",
     "x-dsg-platform": "v2",
     "pool-c-swimlane": "71",
     "disable-pinning": "false",
+    "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+    "Sec-Ch-Ua-Mobile": "?0",
     "Sec-Fetch-Site": "same-site",
     "Sec-Fetch-Mode": "cors",
     "Sec-Fetch-Dest": "empty",
